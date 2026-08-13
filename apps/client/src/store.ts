@@ -1,39 +1,61 @@
 import { create } from 'zustand';
 
-// Описываем типы фильтров, которые один в один совпадают с бэкендом
 export type NotesFilter = 'all' | 'inbox' | 'folder';
 
 interface UIState {
+  activeFilter: NotesFilter;
   activeFolderId: string | null;
   activeNoteId: string | null;
-  activeFilter: NotesFilter;
 
-  // Экшены (действия) для изменения состояния
+  // ГЛОБАЛЬНЫЙ СТЕЙТ ДЛЯ МАССОВЫХ ОПЕРАЦИЙ
+  selectedNoteIds: string[];
+  targetFolderId: string; // 'inbox' или UUID папки
+
+  // Экшены навигации
+  setFilter: (filter: NotesFilter) => void;
   setActiveFolder: (folderId: string | null) => void;
   setActiveNote: (noteId: string | null) => void;
-  setFilter: (filter: NotesFilter) => void;
+
+  // ЭКШЕНЫ ДЛЯ ЧЕК-БОКСОВ
+  toggleSelectNote: (noteId: string) => void;
+  clearSelection: () => void;
+  setTargetFolder: (folderId: string) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
-  // Дефолтные координаты при старте приложения
+  activeFilter: 'all',
   activeFolderId: null,
   activeNoteId: null,
-  activeFilter: 'all', // По умолчанию показываем вообще все заметки
+
+  selectedNoteIds: [],
+  targetFolderId: 'inbox',
+
+  setFilter: (filter) =>
+    set({
+      activeFilter: filter,
+      activeFolderId: null,
+      activeNoteId: null,
+      selectedNoteIds: [], // 🧼 Чистим галочки при переключении вкладок!
+    }),
 
   setActiveFolder: (folderId) =>
     set({
+      activeFilter: 'folder',
       activeFolderId: folderId,
-      activeNoteId: null, // Сбрасываем открытую заметку при переходе в другую папку
-      activeFilter: folderId ? 'folder' : 'all', // Умное переключение фильтра
+      activeNoteId: null,
+      selectedNoteIds: [], // 🧼 Чистим галочки при смене папки!
     }),
 
   setActiveNote: (noteId) => set({ activeNoteId: noteId }),
 
-  setFilter: (filter) =>
+  // 🎯 Реализация экшенов для чекбоксов
+  toggleSelectNote: (noteId) =>
     set((state) => ({
-      activeFilter: filter,
-      // Если переключаемся на inbox или all, сбрасываем активную папку
-      activeFolderId: filter === 'folder' ? state.activeFolderId : null,
-      activeNoteId: null,
+      selectedNoteIds: state.selectedNoteIds.includes(noteId)
+        ? state.selectedNoteIds.filter((id) => id !== noteId)
+        : [...state.selectedNoteIds, noteId],
     })),
+
+  clearSelection: () => set({ selectedNoteIds: [] }),
+  setTargetFolder: (folderId) => set({ targetFolderId: folderId }),
 }));

@@ -1,0 +1,26 @@
+/* 🧪 СИСТЕМНЫЕ ПЕРЕМЕННЫЕ RANGER STYLE */
+:root {
+  /* Шрифты */
+  --font-main: system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Цвета панелей */
+  --bg-sidebar: #f8f9fa;
+  --bg-center: #ffffff;
+  --bg-viewer: #ffffff;
+
+  /* Контрасты и Бордеры */
+  --border-color: #d1d5db;
+  --border-active: #111111;
+
+  /* Интерактивные цвета */
+  --color-primary: #0066cc;
+  --color-danger: #dc3545;
+  --bg-bulk-panel: #eef9ff;
+  --border-bulk-panel: #bce1f5;
+  --bg-tag: #e5e7eb;
+
+  /* Размеры и Отступы */
+  --sidebar-width: 260px;
+  --center-width: 360px;
+}

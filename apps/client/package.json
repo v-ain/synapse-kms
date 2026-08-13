@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@synapse-kms/shared": "*",
     "@tanstack/react-query": "^5.101.4",
     "axios": "^1.19.0",
     "react": "^19.2.8",

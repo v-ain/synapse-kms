@@ -1,27 +1,18 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  useInfiniteQuery,
+} from '@tanstack/react-query';
 import { api } from './api';
 import { useUIStore } from './store';
-
-// 🧬 Интерфейсы один в один как на бэкенде
-export interface Folder {
-  id: string;
-  title: string;
-  notes_count: number;
-  created_at: string;
-}
-
-export interface Note {
-  id: string;
-  folder_id: string | null;
-  title: string;
-  content?: string;
-  preview: string;
-  version: number;
-  is_archived: boolean;
-  created_at: string;
-  updated_at: string;
-  tags: string[];
-}
+import type {
+  Note,
+  Folder,
+  BlkMovePayload,
+  PaginatedResponse,
+  GetNotesQueryParams,
+} from '@synapse-kms/shared';
 
 // 📁 1. Хук получения всех папок
 export function useFolders() {
@@ -31,20 +22,27 @@ export function useFolders() {
   });
 }
 
-// 📝 2. Универсальный хук получения заметок, завязанный на Zustand-координаты!
 export function useNotes() {
   const { activeFilter, activeFolderId } = useUIStore();
 
-  return useQuery<Note[]>({
-    // Кэш автоматически разделится по вкладкам!
+  return useInfiniteQuery<PaginatedResponse<Note>>({
+    // Ключ кэша теперь учитывает пагинацию
     queryKey: ['notes', activeFilter, activeFolderId],
-    // Автоматически шлём текущие UI-координаты на наш универсальный бэкенд
-    queryFn: () =>
-      api
-        .get('/notes', {
-          params: { filter: activeFilter, folder_id: activeFolderId },
-        })
-        .then((res) => res.data),
+
+    // Функция запроса принимает специальный параметр pageParam, куда TanStack положит наш курсор
+    queryFn: ({ pageParam }) => {
+      const params: GetNotesQueryParams = {
+        filter: activeFilter,
+        folder_id: activeFolderId || undefined,
+        limit: '20',
+        cursor: (pageParam as string) || undefined, // курсор в параметры запроса к Fastify
+      };
+      return api.get('/notes', { params }).then((res) => res.data);
+    },
+
+    // Говорим хуку, откуда брать следующий курсор для новой страницы
+    getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
+    initialPageParam: undefined, // Первая страница загружается без курсора
   });
 }
 

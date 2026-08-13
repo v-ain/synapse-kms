@@ -1,0 +1,149 @@
+/* 🌐 ГЛУБОКИЙ СБРОС И ОБЩИЕ СТИЛИ */
+body,
+html {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-main);
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* 🏗️ ТРЕХКОЛОНОЧНЫЙ RANGER LAYOUT */
+.ranger-container {
+  display: flex;
+  height: 100vh;
+}
+
+/* 📁 КОЛОНКА 1: БОКОВАЯ ПАНЕЛЬ */
+.sidebar-panel {
+  width: var(--sidebar-width);
+  border-right: 1px solid var(--border-color);
+  padding: 15px;
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 📝 КОЛОНКА 2: ЦЕНТРАЛЬНАЯ ЛЕНТА */
+.notes-panel {
+  width: var(--center-width);
+  border-right: 1px solid var(--border-color);
+  padding: 15px;
+  background: var(--bg-center);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 📖 КОЛОНКА 3: КАРТА ЗНАНИЙ */
+.viewer-panel {
+  flex: 1;
+  padding: 20px;
+  background: var(--bg-viewer);
+  overflow-y: auto;
+}
+
+/* 🎯 ИНТЕРАКТИВНЫЕ ЭЛЕМЕНТЫ (Кнопки, Списки) */
+.list-unstyled {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.nav-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  margin-bottom: 5px;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.nav-btn:hover {
+  background: #e9ecef;
+}
+
+.nav-btn.active {
+  font-weight: bold;
+  background: #e2e8f0;
+}
+
+/* Карточки заметок */
+.note-card {
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  background: #fafafa;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  transition: all 0.15s ease;
+}
+
+.note-card:hover {
+  background: #f3f4f6;
+}
+
+.note-card.active {
+  border: 2px solid var(--border-active);
+  background: #ffffff;
+}
+
+/* Системные бейджи */
+.version-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.tag-badge {
+  font-size: 11px;
+  background: var(--bg-tag);
+  padding: 2px 8px;
+  border-radius: 12px;
+  color: #374151;
+}
+
+/* Панели форм ввода */
+.form-container {
+  border-top: 1px solid var(--border-color);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-field {
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-family: var(--font-main);
+}
+
+.btn-submit {
+  padding: 6px;
+  background: #374151;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.btn-submit:hover {
+  background: #1f2937;
+}
+
+/* Панель массовых операций */
+.bulk-panel {
+  background: var(--bg-bulk-panel);
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-bulk-panel);
+}
