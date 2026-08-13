@@ -278,49 +278,45 @@ fastify.post<{ Body: { name: string } }>('/tags', async (request, reply) => {
 });
 
 // РОУТ: Привязка тега к заметке (Запись в Junction Table)
-fastify.post<{ Body: { note_id: string; tag_id: string } }>(
-  '/notes/attach-tag',
-  async (request, reply) => {
-    const { note_id, tag_id } = request.body;
+// 🏷️ ОБНОВЛЕННЫЙ РОУТ: Атомарное создание + привязка тега по имени за один запрос!
+fastify.post<{
+  Body: { note_id: string; tag_name: string }; // 🎯 Принимаем имя, а не ID!
+}>('/notes/attach-tag', async (request, reply) => {
+  const { note_id, tag_name } = request.body;
 
-    if (!note_id || !tag_id) {
-      return reply
-        .status(400)
-        .send({ error: 'Both note_id and tag_id are required' });
-    }
-
-    try {
-      // Проверяем физическое существование заметки и тега
-      const [note] = await sql`SELECT id FROM notes WHERE id = ${note_id}`;
-      const [tag] = await sql`SELECT id FROM tags WHERE id = ${tag_id}`;
-
-      if (!note || !tag) {
-        return reply.status(404).send({ error: 'Note or Tag not found' });
-      }
-
-      // Проверяем, не привязан ли уже этот тег к этой заметке
-      const [link] = await sql`
-      SELECT note_id FROM notes_tags WHERE note_id = ${note_id} AND tag_id = ${tag_id};
-    `;
-      if (link) {
-        return reply
-          .status(499)
-          .send({ error: 'Tag is already attached to this note' });
-      }
-
-      // 🎯 Вставляем запись в таблицу связей Many-to-Many
-      await sql`
-      INSERT INTO notes_tags (note_id, tag_id) 
-      VALUES (${note_id}, ${tag_id});
-    `;
-
-      return { success: true, message: 'Tag successfully attached to note' };
-    } catch (err) {
-      fastify.log.error(err);
-      return reply.status(500).send({ error: 'Internal Server Error' });
-    }
+  if (!note_id || !tag_name || tag_name.trim().length === 0) {
+    return reply
+      .status(400)
+      .send({ error: 'Both note_id and tag_name are required' });
   }
-);
+
+  const cleanTagName = tag_name.trim().toLowerCase(); // Приводим к нижнему регистру для порядка
+
+  try {
+    await sql.begin(async (sql) => {
+      // 💥 ШАГ А: Магия Postgres. Создаем тег. Если он уже есть — ON CONFLICT вернет его ID!
+      const [tag] = await sql<{ id: string }[]>`
+        INSERT INTO tags (name) 
+        VALUES (${cleanTagName})
+        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name -- Фиктивный апдейт ради RETURNING
+        RETURNING id;
+      `;
+
+      // ШАГ Б: Связываем тег и заметку в Junction Table
+      // Используем ON CONFLICT DO NOTHING на случай, если этот тег уже привязан к заметке
+      await sql`
+        INSERT INTO notes_tags (note_id, tag_id)
+        VALUES (${note_id}, ${tag.id})
+        ON CONFLICT DO NOTHING;
+      `;
+    });
+
+    return { success: true, message: 'Tag successfully created and attached.' };
+  } catch (err) {
+    fastify.log.error(err);
+    return reply.status(500).send({ error: 'Internal Server Error' });
+  }
+});
 
 // РОУТ: Получение полного контента конкретной заметки по UUID
 fastify.get<{
@@ -506,34 +502,52 @@ fastify.patch<{
   }
 });
 
-// РОУТ: Пакетное перемещение заметок за ОДИН выстрел в базу
+// РОУТ: Пакетное перемещение с жестким контролем версий строк!
 fastify.post<{
-  Body: { note_ids: string[]; target_folder_id: string | null };
+  Body: {
+    items: { id: string; version: number }[];
+    target_folder_id: string | null;
+  };
 }>('/notes/bulk-move', async (request, reply) => {
-  const { note_ids, target_folder_id } = request.body;
+  const { items, target_folder_id } = request.body;
 
-  if (!note_ids || !Array.isArray(note_ids) || note_ids.length === 0) {
-    return reply.status(400).send({ error: 'Array of note_ids is required' });
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return reply
+      .status(400)
+      .send({ error: 'Array of items [{id, version}] is required' });
   }
 
+  // Вытаскиваем массив ID для удобства подзапросов
+  const noteIds = items.map((i) => i.id);
+
   try {
-    // Запускаем транзакцию ACID
-    await sql.begin(async (sql) => {
-      // Шаг А: Сначала собираем информацию, из каких папок уходят заметки (нужно для уменьшения счетчиков)
+    const conflictDetected = await sql.begin(async (sql) => {
+      // Шаг А: Запоминаем, где сейчас лежат заметки (для будущих счетчиков)
       const sourceFolders = await sql<{ folder_id: string | null }[]>`
-        SELECT folder_id FROM notes WHERE id = ANY(${note_ids}) AND folder_id IS NOT NULL;
+        SELECT folder_id FROM notes WHERE id = ANY(${noteIds}) AND folder_id IS NOT NULL;
       `;
 
-      // Шаг Б: Одним атомарным запросом перемещаем ВСЕ заметки!
-      // Оператор ANY() принимает JS-массив и превращает его в SQL-массив встроенными силами драйвера
-      await sql`
-        UPDATE notes 
-        SET folder_id = ${target_folder_id || null}, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ANY(${note_ids});
+      // Шаг Б: Пакетный UPDATE с проверкой ИНДИВИДУАЛЬНОЙ версии каждой заметки!
+      // Мы разворачиваем присланный JS-массив в виртуальную таблицу данных v(id, version)
+      const updated = await sql`
+        UPDATE notes n
+        SET 
+          folder_id = ${target_folder_id || null},
+          version = n.version + 1, -- Инкрементируем версию при перемещении!
+          updated_at = CURRENT_TIMESTAMP
+        FROM (
+          VALUES ${sql(items.map((i) => [i.id, i.version]))}
+        ) AS v(id, version)
+        WHERE n.id = v.id::uuid AND n.version = v.version::integer -- Проверяем замок!
+        RETURNING n.id;
       `;
 
-      // Шаг В: Пересчитываем счетчики старых папок.
-      // Вместо математических вычитаний мы просто делаем честный подзапрос COUNT. Это надежнее в Highload!
+      // 🚨 Если количество обновленных строк МЕНЬШЕ, чем прислал фронтенд — значит какая-то заметка уже изменена!
+      if (updated.length !== items.length) {
+        return true; // Сигнализируем о конфликте
+      }
+
+      // Шаг В: Если всё ок — пересчитываем счетчики старых папок
       if (sourceFolders.length > 0) {
         const uniqueOldFolderIds = [
           ...new Set(sourceFolders.map((f) => f.folder_id)),
@@ -545,19 +559,28 @@ fastify.post<{
         `;
       }
 
-      // Шаг Г: Пересчитываем счетчик новой целевой папки, если это не Входящие
+      // Шаг Г: Пересчитываем счетчик новой целевой папки
       if (target_folder_id) {
         await sql`
-          UPDATE folders 
-          SET notes_count = (SELECT COUNT(*) FROM notes WHERE folder_id = ${target_folder_id} AND is_archived = FALSE)
-          WHERE id = ${target_folder_id};
+          UPDATE folders f
+          SET notes_count = (SELECT COUNT(*) FROM notes WHERE folder_id = f.id AND is_archived = FALSE)
+          WHERE f.id = ${target_folder_id};
         `;
       }
+
+      return false;
     });
+
+    if (conflictDetected) {
+      return reply.status(409).send({
+        error:
+          'Conflict! One or more notes have been modified or moved by another process.',
+      });
+    }
 
     return {
       success: true,
-      message: `Successfully moved ${note_ids.length} notes.`,
+      message: `Successfully moved ${items.length} notes.`,
     };
   } catch (err) {
     fastify.log.error(err);

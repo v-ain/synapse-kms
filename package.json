@@ -9,7 +9,8 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:server": "npm run dev --workspace=@synapse-kms/server"
+    "dev:server": "npm run dev --workspace=@synapse-kms/server",
+    "dev:client": "npm run dev --workspace=@synapse-kms/client"
   },
   "author": "v-ain",
   "license": "ISC"
