@@ -1,37 +1,67 @@
+import { eq, and, sql as drizzleSql } from 'drizzle-orm';
+import { foldersTable, notesTable } from '@synapse-kms/shared';
 import type { Folder } from '@synapse-kms/shared';
 
 export class FoldersController {
+  // 🧬 Внедряем типизированный инстанс 'db' вместо сырого 'sql'
   constructor(
-    private sql: any,
+    private db: any,
     private log: any
   ) {}
 
-  // Получить список папок с сортировкой по времени создания
+  // 📁 1. Получить только ЖИВЫЕ папки текущего юзера
   async getFolders(userId: string): Promise<Folder[]> {
-    return this.sql<Folder[]>`
-      SELECT id, title, notes_count, created_at 
-      FROM folders 
-      WHERE is_deleted = FALSE AND user_id = ${userId} -- segmetation
-      ORDER BY created_at DESC;
-    `;
+    return this.db
+      .select()
+      .from(foldersTable)
+      .where(
+        and(
+          eq(foldersTable.is_deleted, false),
+          eq(foldersTable.user_id, userId)
+        )
+      )
+      .orderBy(drizzleSql`${foldersTable.created_at} DESC`); // Используем легкую вставку для сортировки
   }
 
-  // Создать новую папку
+  // 🏗️ 2. Создать новую папку
   async createFolder(title: string, userId: string): Promise<Folder> {
-    const [folder] = await this.sql<Folder[]>`
-      INSERT INTO folders (title, user_id) -- Записываем владельца!
-      VALUES (${title.trim()}, ${userId}) 
-      RETURNING id, title, notes_count, created_at;
-    `;
+    const [folder] = await this.db
+      .insert(foldersTable)
+      .values({
+        title: title.trim(),
+        user_id: userId,
+      })
+      .returning();
+
     return folder;
   }
 
-  // SOFT DELETE ПАПКИ
+  // 🗑️ 3. Мягкое удаление папки (Enterprise транзакция на чистом TS!)
   async deleteFolder(id: string, userId: string): Promise<void> {
-    await this.sql.begin(async (sql: any) => {
-      // Защита: удалить можно только СВОЮ папку
-      await sql`UPDATE folders SET is_deleted = TRUE WHERE id = ${id} AND user_id = ${userId};`;
-      await sql`UPDATE notes SET folder_id = NULL, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE folder_id = ${id} AND user_id = ${userId} AND is_deleted = FALSE;`;
+    // Открываем ACID-транзакцию через Drizzle
+    await this.db.transaction(async (tx: any) => {
+      // А. Маркируем папку как удаленную
+      await tx
+        .update(foldersTable)
+        .set({ is_deleted: true })
+        .where(and(eq(foldersTable.id, id), eq(foldersTable.user_id, userId)));
+
+      // Б. Выбрасываем живые заметки из этой папки во Входящие (NULL)
+      await tx
+        .update(notesTable)
+        .set({
+          folder_id: null,
+          // С помощью drizzle-импорта инкрементируем версию и обновляем таймстемп
+          version: drizzleSql`${notesTable.version} + 1`,
+          updated_at: drizzleSql`CURRENT_TIMESTAMP`,
+        })
+        .where(
+          and(
+            eq(notesTable.folder_id, id),
+            eq(notesTable.user_id, userId),
+            eq(notesTable.is_deleted, false)
+          )
+        );
     });
   }
 }

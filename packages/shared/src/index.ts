@@ -1,25 +1,17 @@
 import { z } from 'zod';
-export type NotesFilter = 'all' | 'inbox' | 'folder';
+import type { InferSelectModel } from 'drizzle-orm';
+import { foldersTable, notesTable } from './db-schema.js';
 
-export interface Folder {
-  id: string;
-  title: string;
-  notes_count: number;
-  created_at: string | Date;
-}
-
-export interface Note {
-  id: string;
-  folder_id: string | null;
-  title: string;
-  content?: string;
+export type Folder = InferSelectModel<typeof foldersTable>;
+export type Note = InferSelectModel<typeof notesTable> & {
   preview?: string;
-  version: number;
-  is_archived: boolean;
-  created_at: string | Date;
-  updated_at: string | Date;
-  tags: string[]; // Агрегированный массив тегов
-}
+  tags?: string[];
+};
+
+// Экспортируем саму схему для бэкенда
+export * from './db-schema.js';
+
+export type NotesFilter = 'all' | 'inbox' | 'folder';
 
 export interface Tag {
   id: string;
@@ -46,34 +38,22 @@ export interface GetNotesQueryParams {
 export const CreateNoteSchema = z.object({
   title: z
     .string()
-    .min(1, { message: 'Заголовок не может быть пустым' })
-    .max(100, { message: 'Заголовок слишком длинный (макс. 100 симв.)' })
-    .transform((val) => val.trim()), // Автоматически делает .trim() на лету!
-
+    .min(1)
+    .max(100)
+    .transform((val) => val.trim()),
   content: z.string().default(''),
-
-  folder_id: z
-    .string()
-    .uuid({ message: 'Некорректный формат UUID папки' })
-    .nullable(),
+  folder_id: z.string().uuid().nullable(),
 });
 
 // Схема пакетного перемещения заметок
 export const BulkMoveSchema = z.object({
   items: z
-    .array(
-      z.object({
-        id: z.string().uuid(),
-        version: z.number().int().positive(),
-      })
-    )
-    .min(1, { message: 'Массив заметок не должен быть пустым' }),
-
+    .array(z.object({ id: z.string().uuid(), version: z.number().int() }))
+    .min(1),
   target_folder_id: z.string().uuid().nullable(),
 });
 
-// 🧬 3. АВТОГЕНЕРАЦИЯ ТИПОВ ИЗ СХЕМ ДЛЯ TYPESCRIPT
-// Больше никакого дублирования! TS-типы строятся прямо по схемам валидации!
+// TS-типы строятся по схемам валидации!
 export type CreateNotePayload = z.infer<typeof CreateNoteSchema>;
 export type BulkMovePayload = z.infer<typeof BulkMoveSchema>;
 

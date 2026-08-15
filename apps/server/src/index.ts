@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { notesRoutes } from './routes/notes.js';
 import { foldersRoutes } from './routes/folders.js';
@@ -6,8 +7,17 @@ import { foldersRoutes } from './routes/folders.js';
 import { ZodError } from 'zod';
 
 const fastify = Fastify({ logger: true });
-const sql = postgres('postgres://admin:secret@localhost:5432/synapse_dev');
+
+const queryConnection = postgres(
+  'postgres://synapse_kms:secret@localhost:5432/synapse_kms'
+);
+
+// 'postgres://synapse_kms:secret@localhost:5432/synapse_kms'
+// const sql = postgres('postgres://admin:secret@localhost:5432/synapse_dev');
 // const sql = postgres('postgres://postgres:secret@localhost:5432/synapse_kms');
+
+// Создаем типизированный клиент СУБД
+const db = drizzle(queryConnection);
 
 // Расширяем типы Fastify, чтобы TypeScript знал про наше новое поле в request
 declare module 'fastify' {
@@ -15,20 +25,6 @@ declare module 'fastify' {
     userId: string;
   }
 }
-
-// МИДЛВАР: Ловим заголовок авторизации перед каждым запросом!
-fastify.addHook('preHandler', async (request, reply) => {
-  const userId = request.headers['x-user-id'];
-
-  if (!userId || typeof userId !== 'string') {
-    return reply
-      .status(401)
-      .send({ error: 'Unauthorized. x-user-id header is missing.' });
-  }
-
-  // Сохраняем UUID юзера в контекст запроса Fastify
-  request.userId = userId;
-});
 
 // ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК ВАЛИДАЦИИ
 fastify.setErrorHandler((error, request, reply) => {
@@ -50,15 +46,29 @@ fastify.setErrorHandler((error, request, reply) => {
   reply.send(error);
 });
 
-// Регистрируем изолированный плагин роутов заметок
-fastify.register(async (instance) => {
-  await notesRoutes(instance, sql);
-  await foldersRoutes(instance, sql);
+// Ловим заголовок авторизации перед каждым запросом!
+fastify.addHook('preHandler', async (request, reply) => {
+  const userId = request.headers['x-user-id'];
+
+  if (!userId || typeof userId !== 'string') {
+    return reply
+      .status(401)
+      .send({ error: 'Unauthorized. x-user-id header is missing.' });
+  }
+
+  // Сохраняем UUID юзера в контекст запроса Fastify
+  request.userId = userId;
 });
 
-fastify.get('/tags', async () => {
-  return sql`SELECT id, name FROM tags ORDER BY name ASC;`;
+// Регистрируем изолированный плагин роутов заметок
+fastify.register(async (instance) => {
+  await notesRoutes(instance, db);
+  await foldersRoutes(instance, db);
 });
+
+// fastify.get('/tags', async () => {
+//   return sql`SELECT id, name FROM tags ORDER BY name ASC;`;
+// });
 
 const start = async () => {
   try {

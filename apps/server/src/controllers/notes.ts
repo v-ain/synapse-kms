@@ -1,68 +1,85 @@
+import { eq, and, sql, desc, lt } from 'drizzle-orm';
+import {
+  notesTable,
+  foldersTable,
+  notesTagsTable,
+  tagsTable,
+} from '@synapse-kms/shared';
 import type {
   Note,
-  NotesFilter,
-  BulkMovePayload,
   CreateNotePayload,
-  GetNotesQueryParams,
+  BulkMovePayload,
   PaginatedResponse,
+  GetNotesQueryParams,
 } from '@synapse-kms/shared';
 
 export class NotesController {
+  // 🧬 Внедряем типизированный инстанс 'db' вместо сырого 'sql'
   constructor(
-    private sql: any,
+    private db: any,
     private log: any
   ) {}
 
+  // 📝 1. ПОЛУЧИТЬ КУРСОРНУЮ ПАГИНАЦИЮ ЗАМЕТОК (Highload O(1) с тегами)
   async getNotes(
     query: GetNotesQueryParams,
     userId: string
   ): Promise<PaginatedResponse<Note>> {
     const { folder_id, filter = 'all', limit = '20', cursor } = query;
 
-    // Берем на 1 строку больше лимита, чтобы точно знать, есть ли данные дальше!
     const parsedLimit = Math.min(parseInt(limit, 10), 50);
-    const sqlLimit = parsedLimit + 1;
+    const sqlLimit = parsedLimit + 1; // Берем на 1 больше для проверки has_more
 
-    let conditions = this
-      .sql`n.is_archived = FALSE AND n.is_deleted = FALSE AND n.user_id = ${userId}`;
+    // Собираем массив условий фильтрации
+    const conditions = [
+      eq(notesTable.is_archived, false),
+      eq(notesTable.is_deleted, false),
+      eq(notesTable.user_id, userId),
+    ];
 
-    // 1. Фильтрация по папкам/входящим
+    // Фильтры папок
     if (filter === 'inbox') {
-      conditions = this.sql`${conditions} AND n.folder_id IS NULL`;
+      conditions.push(sql`${notesTable.folder_id} IS NULL`);
     } else if (filter === 'folder' && folder_id) {
-      conditions = this.sql`${conditions} AND n.folder_id = ${folder_id}`;
+      conditions.push(eq(notesTable.folder_id, folder_id));
     }
 
-    // 2. Магия Курсора: Если курсор передан, берем только строки СТРОГО СТАРШЕ него
+    // Магия Курсора: если передан, берем записи строго старше таймстемпа курсора
     if (cursor) {
-      conditions = this.sql`${conditions} AND n.updated_at < ${cursor}`;
+      conditions.push(lt(notesTable.updated_at, new Date(cursor)));
     }
 
-    // Выполняем наш атомарный запрос
-    const rawNotes = await this.sql<Note[]>`
-    SELECT n.id, n.folder_id, n.title, n.version, n.is_archived, n.created_at, n.updated_at,
-           substring(n.content from 1 for 150) as preview,
-           COALESCE(json_agg(t.name) FILTER (WHERE t.name IS NOT NULL), '[]'::json) as tags
-    FROM notes n
-    LEFT JOIN notes_tags nt ON n.id = nt.note_id
-    LEFT JOIN tags t ON nt.tag_id = t.id
-    WHERE ${conditions}
-    GROUP BY n.id 
-    ORDER BY n.updated_at DESC -- Курсор завязан на этот порядок!
-    LIMIT ${sqlLimit};
-  `;
+    // Выполняем реляционный запрос через Drizzle с ручной агрегацией тегов
+    const rawNotes = await this.db
+      .select({
+        id: notesTable.id,
+        folder_id: notesTable.folder_id,
+        title: notesTable.title,
+        version: notesTable.version,
+        is_archived: notesTable.is_archived,
+        created_at: notesTable.created_at,
+        updated_at: notesTable.updated_at,
+        // Магия подрезки превью прямо в Postgres
+        preview: sql<string>`substring(${notesTable.content} from 1 for 150)`,
+        // Профессиональная склейка тегов в JSON-массив на уровне СУБД
+        tags: sql<
+          string[]
+        >`COALESCE(json_agg(${tagsTable.name}) FILTER (WHERE ${tagsTable.name} IS NOT NULL), '[]'::json)`,
+      })
+      .from(notesTable)
+      .leftJoin(notesTagsTable, eq(notesTable.id, notesTagsTable.note_id))
+      .leftJoin(tagsTable, eq(notesTagsTable.tag_id, tagsTable.id))
+      .where(and(...conditions))
+      .groupBy(notesTable.id)
+      .orderBy(desc(notesTable.updated_at))
+      .limit(sqlLimit);
 
-    // Проверяем, есть ли еще страницы
     const hasMore = rawNotes.length > parsedLimit;
-
-    // Отрезаем лишнюю проверочную строку, если она есть
     const items = hasMore ? rawNotes.slice(0, parsedLimit) : rawNotes;
 
-    // Формируем следующий курсор из поля updated_at последней заметки в массиве
     let nextCursor: string | null = null;
     if (items.length > 0) {
       const lastItem = items[items.length - 1];
-      // Преобразуем дату в строгий ISO формат для передачи по сети
       nextCursor =
         lastItem.updated_at instanceof Date
           ? lastItem.updated_at.toISOString()
@@ -76,118 +93,219 @@ export class NotesController {
     };
   }
 
-  // МЕТОД: Исправляем синтаксис UPDATE счетчика в backend/src/controllers/notes.ts
+  // 🔍 2. ПОЛУЧИТЬ КОНТЕНТ ЗАМЕТКИ ПО ID
+  async getNoteById(id: string, userId: string): Promise<Note | null> {
+    const [note] = await this.db
+      .select()
+      .from(notesTable)
+      .where(
+        and(
+          eq(notesTable.id, id),
+          eq(notesTable.user_id, userId),
+          eq(notesTable.is_archived, false),
+          eq(notesTable.is_deleted, false)
+        )
+      )
+      .limit(1);
+
+    return note || null;
+  }
+
+  // 🏗️ 3. СОЗДАТЬ ЗАМЕТКУ (С транзакционным пересчетом счетчика папки)
   async createNote(payload: CreateNotePayload, userId: string): Promise<Note> {
     const { title, content, folder_id } = payload;
 
-    const [newNote] = await this.sql.begin(async (sql: any) => {
-      // 1. Вставляем запись в таблицу notes
-      const [note] = await sql<Note[]>`
-      INSERT INTO notes (title, content, folder_id, user_id) -- Вшиваем user_id!
-      VALUES (${title.trim()}, ${content || ''}, ${folder_id || null}, ${userId})
-      RETURNING 
-        id, 
-        folder_id, 
-        title, 
-        version, 
-        is_archived, 
-        created_at, 
-        updated_at,
-        substring(content from 1 for 150) as preview,
-        '[]'::json as tags;
-    `;
+    const newNote = await this.db.transaction(async (tx: any) => {
+      // А. Вставляем саму заметку
+      const [note] = await tx
+        .insert(notesTable)
+        .values({
+          title: title.trim(),
+          content: content || '',
+          folder_id: folder_id || null,
+          user_id: userId,
+        })
+        .returning();
 
-      // 2. ⚡ ФИКС ТУТ: Обновляем счетчик папки БЕЗ сломанного алиаса "f"
+      // Б. Атомарно пересчитываем notes_count папки через подзапрос
       if (folder_id) {
-        await sql`
-        UPDATE folders
-        SET notes_count = (
-          SELECT COUNT(*) 
-          FROM notes 
-          WHERE folder_id = folders.id -- Используем полное имя таблицы 'folders' вместо алиаса 'f'!
-            AND is_archived = FALSE 
-            AND is_deleted = FALSE
-            AND user_id = ${userId}
-        )
-        WHERE id = ${folder_id};
-      `;
+        await tx
+          .update(foldersTable)
+          .set({
+            notes_count: sql`(SELECT COUNT(*) FROM ${notesTable} WHERE ${notesTable.folder_id} = ${foldersTable.id} AND ${notesTable.is_archived} = false AND ${notesTable.is_deleted} = false)`,
+          })
+          .where(eq(foldersTable.id, folder_id));
       }
 
-      return [note];
+      // Докидываем виртуальные поля для фронтенда, так как при создании тегов еще нет
+      return {
+        ...note,
+        preview: (content || '').substring(0, 150),
+        tags: [],
+      };
     });
 
     return newNote;
   }
 
-  async getNoteById(id: string, userId: string): Promise<Note | null> {
-    const [note] = await this.sql<Note[]>`
-      SELECT id, folder_id, title, content, version, is_archived, created_at, updated_at
-      FROM notes WHERE id = ${id} AND is_archived = FALSE AND is_deleted = FALSE AND user_id = ${userId};
-    `;
-    return note || null;
-  }
-
+  // 🔄 4. BULK MOVE: МАССОВОЕ ПЕРЕМЕЩЕНИЕ С АТОМАРНЫМ ОПТИМИСТИЧНЫМ КОНТРОЛЕМ ВЕРСИЙ
   async bulkMove(
     payload: BulkMovePayload,
     userId: string
-  ): Promise<{ conflict: boolean }> {
+  ): Promise<{ success: boolean; conflict?: boolean }> {
     const { items, target_folder_id } = payload;
     const noteIds = items.map((i) => i.id);
 
-    const conflictDetected = await this.sql.begin(async (sql: any) => {
-      const sourceFolders =
-        await sql`SELECT folder_id FROM notes WHERE id = ANY(${noteIds}) AND folder_id IS NOT NULL;`;
+    const result = await this.db.transaction(async (tx: any) => {
+      // А. Собираем уникальные ID всех старых папок, откуда забираем заметки, чтобы потом обновить их счетчики
+      const oldNotes = await tx
+        .select({ folder_id: notesTable.folder_id })
+        .from(notesTable)
+        .where(
+          and(
+            sql`${notesTable.id} IN ${noteIds}`,
+            eq(notesTable.user_id, userId)
+          )
+        );
 
-      const updated = await sql`
-        UPDATE notes n SET folder_id = ${target_folder_id || null}, version = n.version + 1, updated_at = CURRENT_TIMESTAMP
-        FROM (VALUES ${sql(items.map((i) => [i.id, i.version]))}) AS v(id, version)
-        WHERE n.id = v.id::uuid AND n.version = v.version::integer  AND user_id = ${userId} RETURNING n.id;
-      `;
+      const uniqueOldFolderIds = Array.from(
+        new Set(oldNotes.map((n: any) => n.folder_id).filter(Boolean))
+      );
 
-      if (updated.length !== items.length) return true;
+      // Б. Проверяем версии для предотвращения Race Condition (Оптимистичная блокировка)
+      for (const item of items) {
+        const [currentNote] = await tx
+          .select({ version: notesTable.version })
+          .from(notesTable)
+          .where(
+            and(eq(notesTable.id, item.id), eq(notesTable.user_id, userId))
+          );
 
-      if (sourceFolders.length > 0) {
-        const uniqueIds = [
-          ...new Set(sourceFolders.map((f: any) => f.folder_id)),
-        ];
-        await sql`
-          UPDATE folders f
-          SET notes_count = (SELECT COUNT(*) FROM notes WHERE folder_id = f.id AND is_archived = FALSE AND is_deleted = FALSE) WHERE f.id = ANY(${uniqueIds});`;
+        if (!currentNote || currentNote.version !== item.version) {
+          return { success: false, conflict: true }; // Версия не совпала — откат транзакции!
+        }
       }
+
+      // В. Выполняем массовое обновление папки назначения и инкрементируем версии
+      for (const item of items) {
+        await tx
+          .update(notesTable)
+          .set({
+            folder_id: target_folder_id || null,
+            version: sql`${notesTable.version} + 1`,
+            updated_at: sql`CURRENT_TIMESTAMP`,
+          })
+          .where(
+            and(eq(notesTable.id, item.id), eq(notesTable.user_id, userId))
+          );
+      }
+
+      // Г. Атомарно пересчитываем счетчики во ВСЕХ затронутых старых папках
+      if (uniqueOldFolderIds.length > 0) {
+        for (const fId of uniqueOldFolderIds) {
+          await tx
+            .update(foldersTable)
+            .set({
+              notes_count: sql`(SELECT COUNT(*) FROM ${notesTable} WHERE ${notesTable.folder_id} = ${foldersTable.id} AND ${notesTable.is_archived} = false AND ${notesTable.is_deleted} = false)`,
+            })
+            .where(eq(foldersTable.id, fId as string));
+        }
+      }
+
+      // Д. Атомарно пересчитываем счетчик для НОВОЙ папки
       if (target_folder_id) {
-        await sql`UPDATE folders f SET notes_count = (SELECT COUNT(*) FROM notes WHERE folder_id = f.id AND is_archived = FALSE AND is_deleted = FALSE) WHERE f.id = ${target_folder_id};`;
+        await tx
+          .update(foldersTable)
+          .set({
+            notes_count: sql`(SELECT COUNT(*) FROM ${notesTable} WHERE ${notesTable.folder_id} = ${foldersTable.id} AND ${notesTable.is_archived} = false AND ${notesTable.is_deleted} = false)`,
+          })
+          .where(eq(foldersTable.id, target_folder_id));
       }
-      return false;
+
+      return { success: true };
     });
 
-    return { conflict: conflictDetected };
+    return result;
   }
 
-  async archiveNote(id: string): Promise<{ status: number; error?: string }> {
-    return this.sql.begin(async (sql: any) => {
-      const [note] =
-        await sql`SELECT folder_id, is_archived FROM notes WHERE id = ${id};`;
-      if (!note) return { status: 404, error: 'Note not found' };
-      if (note.is_archived)
-        return { status: 400, error: 'Note is already archived' };
+  // 🗄️ 5. АРХИВАЦИЯ ЗАМЕТКИ (С пересчетом счетчика папки)
+  async archiveNote(id: string, userId: string): Promise<void> {
+    await this.db.transaction(async (tx: any) => {
+      const [note] = await tx
+        .select({ folder_id: notesTable.folder_id })
+        .from(notesTable)
+        .where(and(eq(notesTable.id, id), eq(notesTable.user_id, userId)));
 
-      await sql`UPDATE notes SET is_archived = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ${id};`;
+      if (!note) return;
+
+      // Маркируем архив
+      await tx
+        .update(notesTable)
+        .set({ is_archived: true, updated_at: sql`CURRENT_TIMESTAMP` })
+        .where(and(eq(notesTable.id, id), eq(notesTable.user_id, userId)));
+
+      // Пересчитываем счетчик папки, в которой лежала заметка
       if (note.folder_id) {
-        await sql`UPDATE folders f SET notes_count = (SELECT COUNT(*) FROM notes WHERE folder_id = f.id AND is_archived = FALSE AND is_deleted = FALSE) WHERE f.id = ${note.folder_id};`;
+        await tx
+          .update(foldersTable)
+          .set({
+            notes_count: sql`(SELECT COUNT(*) FROM ${notesTable} WHERE ${notesTable.folder_id} = ${foldersTable.id} AND ${notesTable.is_archived} = false AND ${notesTable.is_deleted} = false)`,
+          })
+          .where(eq(foldersTable.id, note.folder_id));
       }
-      return { status: 200 };
     });
   }
 
-  async attachTag(note_id: string, tag_name: string) {
-    const cleanTagName = tag_name.trim().toLowerCase();
-    await this.sql.begin(async (sql: any) => {
-      const [tag] = await sql`
-        INSERT INTO tags (name) VALUES (${cleanTagName})
-        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id;
-      `;
-      await sql`INSERT INTO notes_tags (note_id, tag_id) VALUES (${note_id}, ${tag.id}) ON CONFLICT DO NOTHING;`;
+  // 🏷️ 6. ПРИВЯЗКА ТЕГА К ЗАМЕТКЕ (Many-to-Many ACID логика)
+  async attachTag(
+    noteId: string,
+    tagName: string,
+    userId: string
+  ): Promise<void> {
+    await this.db.transaction(async (tx: any) => {
+      // Проверяем, существует ли тег, если нет — создаем атомарно
+      let [tag] = await tx
+        .select()
+        .from(tagsTable)
+        .where(eq(tagsTable.name, tagName))
+        .limit(1);
+
+      if (!tag) {
+        [tag] = await tx
+          .insert(tagsTable)
+          .values({ name: tagName })
+          .returning();
+      }
+
+      // Проверяем дубликат связи, чтобы не сломать уникальность
+      const [linkExists] = await tx
+        .select()
+        .from(notesTagsTable)
+        .where(
+          and(
+            eq(notesTagsTable.note_id, noteId),
+            eq(notesTagsTable.tag_id, tag.id)
+          )
+        )
+        .limit(1);
+
+      if (!linkExists) {
+        // Вставляем связь в Many-to-Many таблицу
+        await tx
+          .insert(notesTagsTable)
+          .values({ note_id: noteId, tag_id: tag.id });
+
+        // Инкрементируем версию заметки, так как ее метаданные изменились!
+        await tx
+          .update(notesTable)
+          .set({
+            version: sql`${notesTable.version} + 1`,
+            updated_at: sql`CURRENT_TIMESTAMP`,
+          })
+          .where(
+            and(eq(notesTable.id, noteId), eq(notesTable.user_id, userId))
+          );
+      }
     });
-    return { success: true };
   }
 }
