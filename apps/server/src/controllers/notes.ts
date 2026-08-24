@@ -13,14 +13,18 @@ export class NotesController {
     private log: any
   ) {}
 
-  async getNotes(query: GetNotesQueryParams): Promise<PaginatedResponse<Note>> {
+  async getNotes(
+    query: GetNotesQueryParams,
+    userId: string
+  ): Promise<PaginatedResponse<Note>> {
     const { folder_id, filter = 'all', limit = '20', cursor } = query;
 
     // Берем на 1 строку больше лимита, чтобы точно знать, есть ли данные дальше!
     const parsedLimit = Math.min(parseInt(limit, 10), 50);
     const sqlLimit = parsedLimit + 1;
 
-    let conditions = this.sql`n.is_archived = FALSE AND n.is_deleted = FALSE`;
+    let conditions = this
+      .sql`n.is_archived = FALSE AND n.is_deleted = FALSE AND n.user_id = ${userId}`;
 
     // 1. Фильтрация по папкам/входящим
     if (filter === 'inbox') {
@@ -73,14 +77,14 @@ export class NotesController {
   }
 
   // МЕТОД: Исправляем синтаксис UPDATE счетчика в backend/src/controllers/notes.ts
-  async createNote(payload: CreateNotePayload): Promise<Note> {
+  async createNote(payload: CreateNotePayload, userId: string): Promise<Note> {
     const { title, content, folder_id } = payload;
 
     const [newNote] = await this.sql.begin(async (sql: any) => {
       // 1. Вставляем запись в таблицу notes
       const [note] = await sql<Note[]>`
-      INSERT INTO notes (title, content, folder_id)
-      VALUES (${title.trim()}, ${content || ''}, ${folder_id || null})
+      INSERT INTO notes (title, content, folder_id, user_id) -- Вшиваем user_id!
+      VALUES (${title.trim()}, ${content || ''}, ${folder_id || null}, ${userId})
       RETURNING 
         id, 
         folder_id, 
@@ -103,6 +107,7 @@ export class NotesController {
           WHERE folder_id = folders.id -- Используем полное имя таблицы 'folders' вместо алиаса 'f'!
             AND is_archived = FALSE 
             AND is_deleted = FALSE
+            AND user_id = ${userId}
         )
         WHERE id = ${folder_id};
       `;
@@ -114,15 +119,18 @@ export class NotesController {
     return newNote;
   }
 
-  async getNoteById(id: string): Promise<Note | null> {
+  async getNoteById(id: string, userId: string): Promise<Note | null> {
     const [note] = await this.sql<Note[]>`
       SELECT id, folder_id, title, content, version, is_archived, created_at, updated_at
-      FROM notes WHERE id = ${id} AND is_archived = FALSE AND is_deleted = FALSE;
+      FROM notes WHERE id = ${id} AND is_archived = FALSE AND is_deleted = FALSE AND user_id = ${userId};
     `;
     return note || null;
   }
 
-  async bulkMove(payload: BulkMovePayload): Promise<{ conflict: boolean }> {
+  async bulkMove(
+    payload: BulkMovePayload,
+    userId: string
+  ): Promise<{ conflict: boolean }> {
     const { items, target_folder_id } = payload;
     const noteIds = items.map((i) => i.id);
 
@@ -133,7 +141,7 @@ export class NotesController {
       const updated = await sql`
         UPDATE notes n SET folder_id = ${target_folder_id || null}, version = n.version + 1, updated_at = CURRENT_TIMESTAMP
         FROM (VALUES ${sql(items.map((i) => [i.id, i.version]))}) AS v(id, version)
-        WHERE n.id = v.id::uuid AND n.version = v.version::integer RETURNING n.id;
+        WHERE n.id = v.id::uuid AND n.version = v.version::integer  AND user_id = ${userId} RETURNING n.id;
       `;
 
       if (updated.length !== items.length) return true;

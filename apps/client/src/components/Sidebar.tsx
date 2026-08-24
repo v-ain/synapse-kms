@@ -9,6 +9,7 @@ export function Sidebar() {
   const createFolderMutation = useCreateFolder();
   const deleteFolderMutation = useDeleteFolder();
   const [newFolderTitle, setNewFolderTitle] = useState('');
+  const { currentUserId, setCurrentUserId } = useUIStore();
 
   const handleCreateFolder = (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,6 +21,46 @@ export function Sidebar() {
 
   return (
     <div className="sidebar-panel">
+      {/*  СЕЛЕКТОР ПОЛЬЗОВАТЕЛЕЙ ДЛЯ ОЦЕНКИ MULTI-TENANCY ИЗОЛЯЦИИ */}
+      <div
+        style={{
+          marginBottom: '15px',
+          background: '#fff',
+          padding: '8px',
+          borderRadius: '4px',
+          border: '1px solid var(--border-color)',
+        }}
+      >
+        <label
+          style={{
+            fontSize: '11px',
+            fontWeight: 'bold',
+            display: 'block',
+            marginBottom: '4px',
+            color: '#666',
+          }}
+        >
+          🏢 Активный Аккаунт:
+        </label>
+        <select
+          value={currentUserId}
+          onChange={(e) => setCurrentUserId(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '4px',
+            cursor: 'pointer',
+            fontFamily: 'var(--font-mono)',
+            fontSize: '12px',
+          }}
+        >
+          <option value="11111111-1111-1111-1111-111111111111">
+            👤 Юзер 1 (Разработка)
+          </option>
+          <option value="22222222-2222-2222-2222-222222222222">
+            👤 Юзер 2 (Маркетинг)
+          </option>
+        </select>
+      </div>
       <h3>Synapse KMS</h3>
 
       <div style={{ marginBottom: '20px' }}>

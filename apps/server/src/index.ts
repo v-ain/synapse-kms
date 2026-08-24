@@ -3,10 +3,52 @@ import postgres from 'postgres';
 import { notesRoutes } from './routes/notes.js';
 import { foldersRoutes } from './routes/folders.js';
 // ( foldersRoutes и tagsRoutes, декомпозировать )
+import { ZodError } from 'zod';
 
 const fastify = Fastify({ logger: true });
 const sql = postgres('postgres://admin:secret@localhost:5432/synapse_dev');
 // const sql = postgres('postgres://postgres:secret@localhost:5432/synapse_kms');
+
+// Расширяем типы Fastify, чтобы TypeScript знал про наше новое поле в request
+declare module 'fastify' {
+  interface FastifyRequest {
+    userId: string;
+  }
+}
+
+// МИДЛВАР: Ловим заголовок авторизации перед каждым запросом!
+fastify.addHook('preHandler', async (request, reply) => {
+  const userId = request.headers['x-user-id'];
+
+  if (!userId || typeof userId !== 'string') {
+    return reply
+      .status(401)
+      .send({ error: 'Unauthorized. x-user-id header is missing.' });
+  }
+
+  // Сохраняем UUID юзера в контекст запроса Fastify
+  request.userId = userId;
+});
+
+// ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК ВАЛИДАЦИИ
+fastify.setErrorHandler((error, request, reply) => {
+  if (error instanceof ZodError) {
+    // Если ошибку выкинул Zod — отдаем честный 400 Bad Request
+    return reply.status(400).send({
+      statusCode: 400,
+      error: 'Bad Request',
+      message: 'Ошибка валидации входящих данных',
+      // Разворачиваем подробный список: какое именно поле и почему не прошло проверку
+      issues: error.errors.map((err) => ({
+        field: err.path.join('.'),
+        issue: err.message,
+      })),
+    });
+  }
+
+  // Для всех остальных системных ошибок оставляем дефолтное поведение
+  reply.send(error);
+});
 
 // Регистрируем изолированный плагин роутов заметок
 fastify.register(async (instance) => {

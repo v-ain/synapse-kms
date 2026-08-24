@@ -14,20 +14,22 @@ import type {
   GetNotesQueryParams,
 } from '@synapse-kms/shared';
 
-// 📁 1. Хук получения всех папок
+// Хук получения всех папок
 export function useFolders() {
+  const { currentUserId } = useUIStore();
   return useQuery<Folder[]>({
-    queryKey: ['folders'],
+    // Добавляем currentUserId первым элементом в ключ
+    queryKey: ['folders', currentUserId],
     queryFn: () => api.get('/folders').then((res) => res.data),
   });
 }
 
 export function useNotes() {
-  const { activeFilter, activeFolderId } = useUIStore();
+  const { activeFilter, activeFolderId, currentUserId } = useUIStore();
 
   return useInfiniteQuery<PaginatedResponse<Note>>({
     // Ключ кэша теперь учитывает пагинацию
-    queryKey: ['notes', activeFilter, activeFolderId],
+    queryKey: ['notes', currentUserId, activeFilter, activeFolderId],
 
     // Функция запроса принимает специальный параметр pageParam, куда TanStack положит наш курсор
     queryFn: ({ pageParam }) => {
