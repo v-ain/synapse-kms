@@ -10,7 +10,12 @@
   ],
   "scripts": {
     "dev:server": "npm run dev --workspace=@synapse-kms/server",
-    "dev:client": "npm run dev --workspace=@synapse-kms/client"
+    "dev:client": "npm run dev --workspace=@synapse-kms/client",
+    "db:start": "podman compose up -d",
+    "db:stop": "podman compose down",
+    "db:generate": "npm run --prefix packages/db-scripts db:generate",
+    "db:migrate": "npm run --prefix packages/db-scripts db:migrate",
+    "db:studio": "npm run --prefix packages/db-scripts db:studio"
   },
   "author": "v-ain",
   "license": "ISC",

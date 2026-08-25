@@ -9,12 +9,8 @@ import { ZodError } from 'zod';
 const fastify = Fastify({ logger: true });
 
 const queryConnection = postgres(
-  'postgres://synapse_kms:secret@localhost:5432/synapse_kms'
+  'postgres://myuser:mypassword@localhost:5432/mydb'
 );
-
-// 'postgres://synapse_kms:secret@localhost:5432/synapse_kms'
-// const sql = postgres('postgres://admin:secret@localhost:5432/synapse_dev');
-// const sql = postgres('postgres://postgres:secret@localhost:5432/synapse_kms');
 
 // Создаем типизированный клиент СУБД
 const db = drizzle(queryConnection);

@@ -1,0 +1,19 @@
+{
+  "name": "@synapse-kms/db-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx migrate.ts",
+    "db:studio": "drizzle-kit studio --host 0.0.0.0"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.12"
+  }
+}
