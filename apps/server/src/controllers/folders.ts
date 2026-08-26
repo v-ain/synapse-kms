@@ -1,11 +1,26 @@
 import { eq, and, sql as drizzleSql } from 'drizzle-orm';
-import { foldersTable, notesTable } from '@synapse-kms/shared';
+import {
+  foldersTable,
+  notesTable,
+  notesTagsTable,
+  tagsTable,
+  usersTable,
+} from '@synapse-kms/shared';
 import type { Folder } from '@synapse-kms/shared';
+import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+
+const dbSchema = {
+  usersTable,
+  foldersTable,
+  notesTable,
+  tagsTable,
+  notesTagsTable,
+};
 
 export class FoldersController {
   // 🧬 Внедряем типизированный инстанс 'db' вместо сырого 'sql'
   constructor(
-    private db: any,
+    private db: PostgresJsDatabase<typeof dbSchema>,
     private log: any
   ) {}
 
@@ -39,7 +54,7 @@ export class FoldersController {
   // 🗑️ 3. Мягкое удаление папки (Enterprise транзакция на чистом TS!)
   async deleteFolder(id: string, userId: string): Promise<void> {
     // Открываем ACID-транзакцию через Drizzle
-    await this.db.transaction(async (tx: any) => {
+    await this.db.transaction(async (tx) => {
       // А. Маркируем папку как удаленную
       await tx
         .update(foldersTable)

@@ -8,6 +8,11 @@ export type Note = InferSelectModel<typeof notesTable> & {
   tags?: string[];
 };
 
+export type NotePreview = Omit<Note, 'content' | 'is_deleted' | 'user_id'> & {
+  preview: string;
+  tags: string[];
+};
+
 // Экспортируем саму схему для бэкенда
 export * from './db-schema.js';
 
@@ -22,14 +27,6 @@ export interface PaginatedResponse<T> {
   items: T[];
   next_cursor: string | null; // Передаем таймстемп последней заметки в формате ISO строки
   has_more: boolean;
-}
-
-// Обновим тип параметров запроса списков
-export interface GetNotesQueryParams {
-  folder_id?: string;
-  filter?: 'all' | 'inbox' | 'folder';
-  limit?: string;
-  cursor?: string; // Наш новый входящий курсор (updated_at)
 }
 
 // СХЕМЫ ВАЛИДАЦИИ ZOD (Enterprise-слой)

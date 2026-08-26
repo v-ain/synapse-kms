@@ -9,9 +9,10 @@ import { useUIStore } from './store';
 import type {
   Note,
   Folder,
-  BlkMovePayload,
+  BulkMovePayload,
   PaginatedResponse,
   GetNotesQueryParams,
+  NotePreview,
 } from '@synapse-kms/shared';
 
 // Хук получения всех папок
@@ -27,7 +28,7 @@ export function useFolders() {
 export function useNotes() {
   const { activeFilter, activeFolderId, currentUserId } = useUIStore();
 
-  return useInfiniteQuery<PaginatedResponse<Note>>({
+  return useInfiniteQuery<PaginatedResponse<NotePreview>>({
     // Ключ кэша теперь учитывает пагинацию
     queryKey: ['notes', currentUserId, activeFilter, activeFolderId],
 
@@ -101,10 +102,8 @@ export function useBulkMoveNotes() {
   const { activeFilter, activeFolderId } = useUIStore();
 
   return useMutation({
-    mutationFn: (data: {
-      items: { id: string; version: number }[];
-      target_folder_id: string | null;
-    }) => api.post('/notes/bulk-move', data).then((res) => res.data),
+    mutationFn: (data: BulkMovePayload) =>
+      api.post('/notes/bulk-move', data).then((res) => res.data),
 
     // При успехе сносим кэш папок (счетчики) и кэш заметок (лента)
     onSuccess: () => {

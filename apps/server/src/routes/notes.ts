@@ -65,7 +65,10 @@ export async function notesRoutes(fastify: FastifyInstance, sql: any) {
   fastify.patch<{ Params: { id: string } }>(
     '/notes/:id/archive',
     async (request, reply) => {
-      const result = await controller.archiveNote(request.params.id);
+      const result = await controller.archiveNote(
+        request.params.id,
+        request.userId
+      );
       if (result.error)
         return reply.status(result.status).send({ error: result.error });
       return { success: true };
@@ -76,7 +79,11 @@ export async function notesRoutes(fastify: FastifyInstance, sql: any) {
   fastify.post<{ Body: { note_id: string; tag_name: string } }>(
     '/notes/attach-tag',
     async (request, reply) => {
-      return controller.attachTag(request.body.note_id, request.body.tag_name);
+      return controller.attachTag(
+        request.body.note_id,
+        request.body.tag_name,
+        request.userId
+      );
     }
   );
 }

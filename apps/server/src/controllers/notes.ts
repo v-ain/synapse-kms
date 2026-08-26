@@ -4,27 +4,43 @@ import {
   foldersTable,
   notesTagsTable,
   tagsTable,
+  usersTable,
 } from '@synapse-kms/shared';
+
 import type {
   Note,
   CreateNotePayload,
   BulkMovePayload,
   PaginatedResponse,
   GetNotesQueryParams,
+  NotePreview,
 } from '@synapse-kms/shared';
 
+import {
+  PostgresJsDatabase,
+  PostgresJsTransaction,
+} from 'drizzle-orm/postgres-js';
+
+const dbSchema = {
+  usersTable,
+  foldersTable,
+  notesTable,
+  tagsTable,
+  notesTagsTable,
+};
+
 export class NotesController {
-  // 🧬 Внедряем типизированный инстанс 'db' вместо сырого 'sql'
+  // Внедряем типизированный инстанс 'db' вместо сырого 'sql'
   constructor(
-    private db: any,
+    private db: PostgresJsDatabase<typeof dbSchema>,
     private log: any
   ) {}
 
-  // 📝 1. ПОЛУЧИТЬ КУРСОРНУЮ ПАГИНАЦИЮ ЗАМЕТОК (Highload O(1) с тегами)
+  // 1. ПОЛУЧИТЬ КУРСОРНУЮ ПАГИНАЦИЮ ЗАМЕТОК (Highload O(1) с тегами)
   async getNotes(
     query: GetNotesQueryParams,
     userId: string
-  ): Promise<PaginatedResponse<Note>> {
+  ): Promise<PaginatedResponse<NotePreview>> {
     const { folder_id, filter = 'all', limit = '20', cursor } = query;
 
     const parsedLimit = Math.min(parseInt(limit, 10), 50);
@@ -115,7 +131,7 @@ export class NotesController {
   async createNote(payload: CreateNotePayload, userId: string): Promise<Note> {
     const { title, content, folder_id } = payload;
 
-    const newNote = await this.db.transaction(async (tx: any) => {
+    const newNote = await this.db.transaction(async (tx) => {
       // А. Вставляем саму заметку
       const [note] = await tx
         .insert(notesTable)
@@ -156,7 +172,7 @@ export class NotesController {
     const { items, target_folder_id } = payload;
     const noteIds = items.map((i) => i.id);
 
-    const result = await this.db.transaction(async (tx: any) => {
+    const result = await this.db.transaction(async (tx) => {
       // А. Собираем уникальные ID всех старых папок, откуда забираем заметки, чтобы потом обновить их счетчики
       const oldNotes = await tx
         .select({ folder_id: notesTable.folder_id })
@@ -169,7 +185,7 @@ export class NotesController {
         );
 
       const uniqueOldFolderIds = Array.from(
-        new Set(oldNotes.map((n: any) => n.folder_id).filter(Boolean))
+        new Set(oldNotes.map((n) => n.folder_id).filter(Boolean))
       );
 
       // Б. Проверяем версии для предотвращения Race Condition (Оптимистичная блокировка)
@@ -228,32 +244,40 @@ export class NotesController {
     return result;
   }
 
-  // 🗄️ 5. АРХИВАЦИЯ ЗАМЕТКИ (С пересчетом счетчика папки)
-  async archiveNote(id: string, userId: string): Promise<void> {
-    await this.db.transaction(async (tx: any) => {
-      const [note] = await tx
-        .select({ folder_id: notesTable.folder_id })
-        .from(notesTable)
-        .where(and(eq(notesTable.id, id), eq(notesTable.user_id, userId)));
-
-      if (!note) return;
-
-      // Маркируем архив
-      await tx
+  // 5. АРХИВАЦИЯ ЗАМЕТКИ (Оптимизированная ACID логика без лишних SELECT)
+  async archiveNote(
+    id: string,
+    userId: string
+  ): Promise<
+    { error: string; status: number } | { error: null; success: true }
+  > {
+    const result = await this.db.transaction(async (tx) => {
+      // А. Сразу маркируем архив и возвращаем folder_id обновленной заметки
+      const [updatedNote] = await tx
         .update(notesTable)
         .set({ is_archived: true, updated_at: sql`CURRENT_TIMESTAMP` })
-        .where(and(eq(notesTable.id, id), eq(notesTable.user_id, userId)));
+        .where(and(eq(notesTable.id, id), eq(notesTable.user_id, userId)))
+        .returning({ folder_id: notesTable.folder_id }); // Вытаскиваем только то, что нужно для счетчика
 
-      // Пересчитываем счетчик папки, в которой лежала заметка
-      if (note.folder_id) {
+      // Если массив пустой, значит заметка не найдена или чужая
+      if (!updatedNote) {
+        return { error: 'Заметка не найдена или у вас нет прав', status: 404 };
+      }
+
+      // Б. Пересчитываем счетчик папки, в которой лежала заметка
+      if (updatedNote.folder_id) {
         await tx
           .update(foldersTable)
           .set({
             notes_count: sql`(SELECT COUNT(*) FROM ${notesTable} WHERE ${notesTable.folder_id} = ${foldersTable.id} AND ${notesTable.is_archived} = false AND ${notesTable.is_deleted} = false)`,
           })
-          .where(eq(foldersTable.id, note.folder_id));
+          .where(eq(foldersTable.id, updatedNote.folder_id));
       }
+
+      return { error: null, success: true } as const;
     });
+
+    return result;
   }
 
   // 🏷️ 6. ПРИВЯЗКА ТЕГА К ЗАМЕТКЕ (Many-to-Many ACID логика)
@@ -262,7 +286,7 @@ export class NotesController {
     tagName: string,
     userId: string
   ): Promise<void> {
-    await this.db.transaction(async (tx: any) => {
+    await this.db.transaction(async (tx) => {
       // Проверяем, существует ли тег, если нет — создаем атомарно
       let [tag] = await tx
         .select()
