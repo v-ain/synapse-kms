@@ -5,6 +5,10 @@ import { notesRoutes } from './routes/notes.js';
 import { foldersRoutes } from './routes/folders.js';
 // ( foldersRoutes и tagsRoutes, декомпозировать )
 import { ZodError } from 'zod';
+import { FolderService } from './services/folder.service.js';
+import { NoteService } from './services/note.service.js';
+import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
+import { appRouter, createContext } from '@synapse-kms/trpc';
 
 const fastify = Fastify({ logger: true });
 
@@ -21,6 +25,9 @@ declare module 'fastify' {
     userId: string;
   }
 }
+
+const noteService = new NoteService(db);
+const folderService = new FolderService(db);
 
 // ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК ВАЛИДАЦИИ
 fastify.setErrorHandler((error, request, reply) => {
@@ -62,6 +69,25 @@ fastify.register(async (instance) => {
   await foldersRoutes(instance, db);
 });
 
+fastify.register(fastifyTRPCPlugin, {
+  prefix: '/trpc',
+  useWss: false,
+  trpcOptions: {
+    router: appRouter,
+    // Эта функция запускается на КАЖДЫЙ запрос фронтенда
+    createContext: ({ req, res }) => {
+      // Достаем userId из сессии/кук/хедеров вашего Fastify запроса
+      const userId = (req as any).userId || null;
+
+      // Собираем тот самый "рюкзак" контекста
+      return createContext({
+        noteService,
+        folderService,
+        userId,
+      });
+    },
+  },
+});
 // fastify.get('/tags', async () => {
 //   return sql`SELECT id, name FROM tags ORDER BY name ASC;`;
 // });
@@ -76,3 +102,6 @@ const start = async () => {
   }
 };
 start();
+
+export type { NoteService } from './services/note.service.js';
+export type { FolderService } from './services/folder.service.js';

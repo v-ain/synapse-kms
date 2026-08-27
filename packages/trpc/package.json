@@ -1,0 +1,17 @@
+{
+  "name": "@synapse-kms/trpc",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@trpc/server": "^11.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@synapse-kms/server": "*",
+    "typescript": "^5.9.0"
+  }
+}

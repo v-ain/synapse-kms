@@ -14,6 +14,7 @@ import type {
   GetNotesQueryParams,
   NotePreview,
 } from '@synapse-kms/shared';
+import { trpc } from './utils/trpc';
 
 // Хук получения всех папок
 export function useFolders() {
@@ -26,27 +27,19 @@ export function useFolders() {
 }
 
 export function useNotes() {
-  const { activeFilter, activeFolderId, currentUserId } = useUIStore();
+  const { activeFilter, activeFolderId } = useUIStore();
 
-  return useInfiniteQuery<PaginatedResponse<NotePreview>>({
-    // Ключ кэша теперь учитывает пагинацию
-    queryKey: ['notes', currentUserId, activeFilter, activeFolderId],
-
-    // Функция запроса принимает специальный параметр pageParam, куда TanStack положит наш курсор
-    queryFn: ({ pageParam }) => {
-      const params: GetNotesQueryParams = {
-        filter: activeFilter,
-        folder_id: activeFolderId || undefined,
-        limit: '20',
-        cursor: (pageParam as string) || undefined, // курсор в параметры запроса к Fastify
-      };
-      return api.get('/notes', { params }).then((res) => res.data);
+  return trpc.notes.getNotes.useInfiniteQuery(
+    {
+      filter: activeFilter,
+      folder_id: activeFolderId || undefined,
+      limit: '20',
     },
-
-    // Говорим хуку, откуда брать следующий курсор для новой страницы
-    getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
-    initialPageParam: undefined, // Первая страница загружается без курсора
-  });
+    {
+      initialCursor: undefined,
+      getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
+    }
+  );
 }
 
 // 🎯 3. Точечный хук для вытягивания ПОЛНОГО контента заметки по UUID

@@ -16,7 +16,7 @@ export type NotePreview = Omit<Note, 'content' | 'is_deleted' | 'user_id'> & {
 // Экспортируем саму схему для бэкенда
 export * from './db-schema.js';
 
-export type NotesFilter = 'all' | 'inbox' | 'folder';
+// export type NotesFilter = 'all' | 'inbox' | 'folder';
 
 export interface Tag {
   id: string;
@@ -54,10 +54,18 @@ export const BulkMoveSchema = z.object({
 export type CreateNotePayload = z.infer<typeof CreateNoteSchema>;
 export type BulkMovePayload = z.infer<typeof BulkMoveSchema>;
 
-// Тип параметров для пагинации списков
-export interface GetNotesQueryParams {
-  folder_id?: string;
-  filter?: NotesFilter;
-  limit?: string;
-  cursor?: string;
-}
+// Описываем допустимые значения для фильтра
+export const notesFilterSchema = z.enum(['all', 'inbox', 'archive', 'folder']);
+export type NotesFilter = z.infer<typeof notesFilterSchema>;
+
+// 🛡️ Живая Zod-схема для валидации параметров запроса
+export const getNotesQueryParamsSchema = z.object({
+  folder_id: z.string().uuid().optional(),
+  filter: notesFilterSchema.optional(),
+  limit: z.string().optional(),
+  cursor: z.string().optional(),
+  // cursor: z.string().nullish(), // Обязательно nullish или optional!
+});
+
+// Автоматически вытаскиваем TS-тип из схемы (он заменит твой старый interface!)
+export type GetNotesQueryParams = z.infer<typeof getNotesQueryParamsSchema>;
