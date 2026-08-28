@@ -8,6 +8,27 @@
       "when": 1787683504375,
       "tag": "0000_sharp_prowler",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1787859717052,
+      "tag": "0001_lovely_electro",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787860211401,
+      "tag": "0002_red_lila_cheney",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787948286530,
+      "tag": "0003_huge_rocket_racer",
+      "breakpoints": true
     }
   ]
 }

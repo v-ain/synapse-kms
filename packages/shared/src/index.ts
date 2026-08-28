@@ -69,3 +69,13 @@ export const getNotesQueryParamsSchema = z.object({
 
 // Автоматически вытаскиваем TS-тип из схемы (он заменит твой старый interface!)
 export type GetNotesQueryParams = z.infer<typeof getNotesQueryParamsSchema>;
+
+// Схема авторизации / регистрации
+export const authCredentialsSchema = z.object({
+  email: z.string().email({ message: 'Некорректный формат email' }),
+  password: z
+    .string()
+    .min(6, { message: 'Пароль должен быть не менее 6 символов' }),
+});
+
+export type AuthCredentials = z.infer<typeof authCredentialsSchema>;

@@ -1,49 +1,63 @@
-import { router, publicProcedure } from '../trpc.js';
+import { router, publicProcedure, protectedProcedure } from '../trpc.js';
 import { z } from 'zod';
 
 // Импортируем Zod-схему, которую вы создали ранее в shared
 import {
+  BulkMoveSchema,
   CreateNoteSchema,
   getNotesQueryParamsSchema,
 } from '@synapse-kms/shared';
 import { TRPCError } from '@trpc/server';
 
 export const notesRouter = router({
-  getNotes: publicProcedure
+  getNotes: protectedProcedure
     // Передаем Zod-схему. Она проверит folder_id, limit, cursor и т.д.
     .input(getNotesQueryParamsSchema)
     .query(async ({ input, ctx }) => {
-      // 1. Проверяем авторизацию (если у вас приватные заметки)
-      if (!ctx.userId) {
-        throw new Error('Unauthorized');
-      }
-
-      // 2. Вызываем ваш готовый контроллер/сервис, передавая валидированный input и userId
-      // input здесь автоматически имеет строгий тип GetNotesQueryParams!
-      const result = await ctx.noteService.getNotes(input, ctx.userId);
-
-      return result;
+      // Никаких 'if (!ctx.userId)'! TypeScript знает, что ctx.userId здесь железобетонно string!
+      return await ctx.noteService.getNotes(input, ctx.userId);
     }),
 
   // Роут создания заметки
-  create: publicProcedure
+  create: protectedProcedure
     .input(CreateNoteSchema) // Zod жестко проверяет входящие данные с фронтенда!
     .mutation(async ({ input, ctx }) => {
-      // Проверяем авторизацию
-      if (!ctx.userId) throw new Error('Unauthorized');
-
       // tRPC передает валидный input прямо в ваш готовый контроллер!
       const newNote = await ctx.noteService.createNote(input, ctx.userId);
 
       return newNote;
     }),
 
-  archive: publicProcedure
-    .input(z.object({ id: z.string() }))
+  // Получение одной заметки по ID
+  getById: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid({ message: 'Некорректный формат ID заметки' }),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const note = await ctx.noteService.getNoteById(input.id, ctx.userId);
+
+      if (!note) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Заметка не найдена',
+        });
+      }
+
+      return note;
+    }),
+
+  archive: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid({ message: 'Некорректный формат ID заметки' }),
+      })
+    )
     .mutation(async ({ input, ctx }) => {
       const result = await ctx.noteService.archiveNote(input.id, ctx.userId);
 
-      // Если сервис вернул ошибку, превращаем её в понятную для tRPC
+      // Если в вашей бизнес-логике сервиса произошла ошибка (например, 404)
       if (result.error) {
         throw new TRPCError({
           code: result.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST',
@@ -51,6 +65,45 @@ export const notesRouter = router({
         });
       }
 
-      return result;
+      return { success: true };
+    }),
+
+  // Пакетное перемещение заметок с оптимистичным замком
+  bulkMove: protectedProcedure
+    .input(BulkMoveSchema)
+    .mutation(async ({ input, ctx }) => {
+      const result = await ctx.noteService.bulkMove(input, ctx.userId);
+
+      // Если сервис сообщил о конфликте версий данных в базе
+      if (result.conflict) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message:
+            'Конфликт версий! Данные некоторых заметок были изменены в другом окне.',
+        });
+      }
+
+      return { success: true };
+    }),
+
+  // Привязка тега по имени (смарт-роут с ON CONFLICT)
+  attachTag: protectedProcedure
+    .input(
+      z.object({
+        note_id: z.string().uuid({ message: 'Некорректный формат ID заметки' }),
+        tag_name: z
+          .string()
+          .min(1, { message: 'Имя тега не может быть пустым' })
+          .max(30, { message: 'Имя тега слишком длинное (макс. 30 символов)' })
+          .trim(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      // Передаем параметры в ваш контроллер/сервис заметок
+      return await ctx.noteService.attachTag(
+        input.note_id,
+        input.tag_name,
+        ctx.userId
+      );
     }),
 });

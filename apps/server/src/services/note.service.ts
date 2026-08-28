@@ -31,10 +31,7 @@ const dbSchema = {
 
 export class NoteService {
   // Внедряем типизированный инстанс 'db' вместо сырого 'sql'
-  constructor(
-    private db: PostgresJsDatabase<typeof dbSchema>,
-    private log: any
-  ) {}
+  constructor(private db: PostgresJsDatabase<typeof dbSchema>) {}
 
   // 1. ПОЛУЧИТЬ КУРСОРНУЮ ПАГИНАЦИЮ ЗАМЕТОК (Highload O(1) с тегами)
   async getNotes(

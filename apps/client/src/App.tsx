@@ -1,19 +1,25 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { NotesList } from './components/NotesList';
 import { NoteViewer } from './components/NoteViewer';
+import { AuthForm } from './components/AuthForm';
 
 export default function App() {
+  const [isAuthed, setIsAuthed] = useState(false);
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif' }}>
-      {/* Колонка 1: Папки и Навигация */}
-      <Sidebar />
+      {!isAuthed ? (
+        // Если не авторизован — показываем форму логина
+        <AuthForm onAuthSuccess={() => setIsAuthed(true)} />
+      ) : (
+        <>
+          <Sidebar />
 
-      {/* Колонка 2: Лента заметок и чекбоксы */}
-      <NotesList />
+          <NotesList />
 
-      {/* Колонка 3: Ленивый просмотр содержимого */}
-      <NoteViewer />
+          <NoteViewer />
+        </>
+      )}
     </div>
   );
 }

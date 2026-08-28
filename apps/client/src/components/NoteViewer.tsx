@@ -1,17 +1,11 @@
 import React, { useState } from 'react';
 import { useUIStore } from '../store';
-import {
-  useNotes,
-  useNoteContent,
-  useArchiveNote,
-  useAttachTag,
-} from '../hooks';
+import { useNotes, useNote, useArchiveNote, useAttachTag } from '../hooks';
 
 export function NoteViewer() {
   const { activeNoteId } = useUIStore();
   const { data } = useNotes();
-  const { data: fullNote, isLoading: contentLoading } =
-    useNoteContent(activeNoteId);
+  const { data: fullNote, isLoading: contentLoading } = useNote(activeNoteId);
   const archiveNoteMutation = useArchiveNote();
   const attachTagMutation = useAttachTag();
   const [newTagName, setNewTagName] = useState('');
@@ -68,7 +62,7 @@ export function NoteViewer() {
         <button
           onClick={() => {
             if (confirm('Удалить заметку в архив?'))
-              archiveNoteMutation.mutate(activeNoteId);
+              archiveNoteMutation.mutate({ id: activeNoteId });
           }}
           style={{
             padding: '6px 12px',

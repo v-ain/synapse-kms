@@ -19,10 +19,7 @@ const dbSchema = {
 
 export class FolderService {
   // 🧬 Внедряем типизированный инстанс 'db' вместо сырого 'sql'
-  constructor(
-    private db: PostgresJsDatabase<typeof dbSchema>,
-    private log: any
-  ) {}
+  constructor(private db: PostgresJsDatabase<typeof dbSchema>) {}
 
   // 📁 1. Получить только ЖИВЫЕ папки текущего юзера
   async getFolders(userId: string): Promise<Folder[]> {
