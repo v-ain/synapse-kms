@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useUIStore } from '../store';
 import { useNotes, useNote, useArchiveNote, useAttachTag } from '../hooks';
+import { NoteEditor } from './NoteEditor';
 
 export function NoteViewer() {
   const { activeNoteId } = useUIStore();
@@ -122,28 +123,30 @@ export function NoteViewer() {
           marginBottom: '20px',
         }}
       />
-
       {contentLoading ? (
         <p style={{ color: '#aaa', fontStyle: 'italic' }}>
           Синхронизация синапса знаний с Podman...
         </p>
       ) : (
-        <div
-          style={{
-            lineHeight: '1.6',
-            whiteSpace: 'pre-wrap',
-            background: '#fff',
-            padding: '15px',
-            borderRadius: '6px',
-            border: '1px solid #f0f0f0',
-          }}
-        >
-          {fullNote?.content || (
-            <span style={{ color: '#aaa', fontStyle: 'italic' }}>
-              Нет контента в этой заметке...
-            </span>
-          )}
-        </div>
+        <>
+          <NoteEditor note={fullNote} />
+          <div
+            style={{
+              lineHeight: '1.6',
+              whiteSpace: 'pre-wrap',
+              background: '#fff',
+              padding: '15px',
+              borderRadius: '6px',
+              border: '1px solid #f0f0f0',
+            }}
+          >
+            {fullNote?.content || (
+              <span style={{ color: '#aaa', fontStyle: 'italic' }}>
+                Нет контента в этой заметке...
+              </span>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

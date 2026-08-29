@@ -42,6 +42,13 @@ export const CreateNoteSchema = z.object({
   folder_id: z.string().uuid().nullable(),
 });
 
+export interface UpdateNotePayload {
+  id: string;
+  version: number;
+  title?: string;
+  content?: string;
+}
+
 // Схема пакетного перемещения заметок
 export const BulkMoveSchema = z.object({
   items: z
@@ -64,6 +71,7 @@ export const getNotesQueryParamsSchema = z.object({
   filter: notesFilterSchema.optional(),
   limit: z.string().optional(),
   cursor: z.string().optional(),
+  search: z.string().optional(),
   // cursor: z.string().nullish(), // Обязательно nullish или optional!
 });
 

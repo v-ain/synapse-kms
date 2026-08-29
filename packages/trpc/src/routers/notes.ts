@@ -106,4 +106,28 @@ export const notesRouter = router({
         ctx.userId
       );
     }),
+
+  // 💾 Атомарное обновление контента с проверкой версии
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        version: z.number(), // передаем текущую версию с фронтенда
+        title: z.string().optional(),
+        content: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      // Вызываем метод сервиса, который проверяет версию в БД перед UPDATE
+      const result = await ctx.noteService.updateNote(input, ctx.userId);
+
+      if (result.conflict) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Конфликт версий! Заметка была изменена в другом месте.',
+        });
+      }
+
+      return result.note!; // возвращаем обновленную заметку (включая новую версию!)
+    }),
 });

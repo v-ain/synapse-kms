@@ -6,6 +6,7 @@ import {
   useCreateNote,
   useBulkMoveNotes,
 } from '../hooks';
+import { SearchBar } from './SearchBar';
 
 export function NotesList() {
   const {
@@ -65,6 +66,7 @@ export function NotesList() {
 
   return (
     <div className="notes-panel">
+      <SearchBar />
       <h4>
         {activeFilter === 'all' && 'Все активные заметки'}
         {activeFilter === 'inbox' && 'Входящие документы'}
@@ -157,7 +159,12 @@ export function NotesList() {
                     marginBottom: '5px',
                   }}
                 >
-                  {note.preview}...
+                  <div
+                    className="text-gray-400 line-clamp-2 leading-relaxed"
+                    dangerouslySetInnerHTML={{
+                      __html: note.preview || 'Нет содержимого...',
+                    }}
+                  />
                 </div>
                 <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                   {note.tags?.map((tag) => (

@@ -7,13 +7,14 @@ export function useFolders() {
 }
 
 export function useNotes() {
-  const { activeFilter, activeFolderId } = useUIStore();
+  const { activeFilter, activeFolderId, searchQuery } = useUIStore();
 
   return trpc.notes.getNotes.useInfiniteQuery(
     {
       filter: activeFilter,
       folder_id: activeFolderId || undefined,
       limit: '20',
+      search: searchQuery || undefined, // 🔍 Передаем поиск в tRPC!
     },
     {
       initialCursor: undefined,
@@ -135,6 +136,28 @@ export function useAttachTag() {
     },
     onError: (err) => {
       alert(`Ошибка привязки тега: ${err.message}`);
+    },
+  });
+}
+
+export function useUpdateNote() {
+  const utils = trpc.useUtils();
+
+  return trpc.notes.update.useMutation({
+    onSuccess: (updatedNote) => {
+      // 🪄 Тчечно обновляем кэш конкретно этой заметки, чтобы зафиксировать новую версию
+      utils.notes.getById.setData({ id: updatedNote.id }, updatedNote);
+
+      // Мягко уведомляем списки заметок, что данные освежились (без жесткого рефетча посреди ввода)
+      utils.notes.getNotes.invalidate();
+    },
+    onError: (error) => {
+      if (error.data?.code === 'CONFLICT') {
+        console.error(
+          '⚠️ Оптимистичный замок: сохранение отклонено, данные устарели.'
+        );
+        // Здесь можно показать неагрессивный варнинг в статус-баре в стиле ranger
+      }
     },
   });
 }

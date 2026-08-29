@@ -1,4 +1,4 @@
-import { eq, and, sql, desc, lt } from 'drizzle-orm';
+import { eq, and, sql, desc, lt, ilike, or } from 'drizzle-orm';
 import {
   notesTable,
   foldersTable,
@@ -14,6 +14,7 @@ import type {
   PaginatedResponse,
   GetNotesQueryParams,
   NotePreview,
+  UpdateNotePayload,
 } from '@synapse-kms/shared';
 
 import {
@@ -62,8 +63,41 @@ export class NoteService {
       conditions.push(lt(notesTable.updated_at, new Date(cursor)));
     }
 
+    // if (query.search && query.search.trim().length > 0) {
+    //   const searchPattern = query.search.trim();
+    //
+    //   const searchFilter = or(
+    //     // 1. Поиск по подстроке в заголовке
+    //     ilike(notesTable.title, `%${searchPattern}%`),
+    //     // 2. Полнотекстовый поиск по контенту заметки
+    //     sql`to_tsvector('russian', ${notesTable.content}) @@ to_tsquery('russian', ${searchPattern.replace(/\s+/g, ' & ')})`
+    //   );
+    //
+    //   // 🪄 Проверяем, что Drizzle успешно собрал SQL-фрагмент
+    //   if (searchFilter) {
+    //     conditions.push(searchFilter);
+    //   }
+    // }
+
+    const isSearchActive = query.search && query.search.trim().length > 0;
+    const searchPattern = isSearchActive ? query.search!.trim() : '';
+
+    if (isSearchActive) {
+      // Формируем паттерн для ILIKE (поиск по подстроке)
+      const likePattern = `%${searchPattern}%`;
+
+      conditions.push(
+        or(
+          ilike(notesTable.title, likePattern),
+          ilike(notesTable.content, likePattern), // 🛡️ Дублируем быстрый ILIKE на контент, если полнотекст промахнётся
+          // Полнотекстовый поиск с префиксами (чтобы искало по мере ввода: "баз" найдет "база")
+          sql`to_tsvector('russian', coalesce(${notesTable.content}, '')) @@ to_tsquery('russian', ${searchPattern.replace(/\s+/g, ' & ') + ':*'})`
+        )!
+      );
+    }
+
     // Выполняем реляционный запрос через Drizzle с ручной агрегацией тегов
-    const rawNotes = await this.db
+    let rawNotes = await this.db
       .select({
         id: notesTable.id,
         folder_id: notesTable.folder_id,
@@ -72,8 +106,7 @@ export class NoteService {
         is_archived: notesTable.is_archived,
         created_at: notesTable.created_at,
         updated_at: notesTable.updated_at,
-        // Магия подрезки превью прямо в Postgres
-        preview: sql<string>`substring(${notesTable.content} from 1 for 150)`,
+        preview: sql<string>`substring(coalesce(${notesTable.content}, '') from 1 for 150)`,
         // Профессиональная склейка тегов в JSON-массив на уровне СУБД
         tags: sql<
           string[]
@@ -86,6 +119,32 @@ export class NoteService {
       .groupBy(notesTable.id)
       .orderBy(desc(notesTable.updated_at))
       .limit(sqlLimit);
+
+    rawNotes = rawNotes.map((note) => {
+      let highlightedPreview = note.preview || '';
+
+      if (isSearchActive) {
+        // Экранируем спецсимволы в поисковом запросе на всякий случай
+        const escapedSearch = searchPattern.replace(
+          /[-\/\\^$*+?.()|[\]{}]/g,
+          '\\$&'
+        );
+
+        // Создаем регистронезависимое регулярное выражение
+        const regex = new RegExp(`(${escapedSearch})`, 'gi');
+
+        // Оборачиваем все совпадения в точно такие же теги mark!
+        highlightedPreview = highlightedPreview.replace(
+          regex,
+          '<mark class="bg-amber-500/20 text-amber-300 px-0.5 rounded">$1</mark>'
+        );
+      }
+
+      return {
+        ...note,
+        preview: highlightedPreview, // отдаем на фронтенд строку с уже готовой подсветкой!
+      };
+    });
 
     const hasMore = rawNotes.length > parsedLimit;
     const items = hasMore ? rawNotes.slice(0, parsedLimit) : rawNotes;
@@ -124,7 +183,7 @@ export class NoteService {
     return note || null;
   }
 
-  // 🏗️ 3. СОЗДАТЬ ЗАМЕТКУ (С транзакционным пересчетом счетчика папки)
+  // СОЗДАТЬ ЗАМЕТКУ (С транзакционным пересчетом счетчика папки)
   async createNote(payload: CreateNotePayload, userId: string): Promise<Note> {
     const { title, content, folder_id } = payload;
 
@@ -328,5 +387,48 @@ export class NoteService {
           );
       }
     });
+  }
+
+  async updateNote(payload: UpdateNotePayload, userId: string) {
+    const { id, version, title, content } = payload;
+
+    // Собираем динамический объект полей для апдейта
+    const updateFields: Record<string, any> = {
+      // Атомарно увеличиваем версию на 1 при каждом успешном сохранении!
+      version: sql`${notesTable.version} + 1`,
+      updatedAt: new Date(), // обновляем таймстамп
+    };
+
+    if (title !== undefined) updateFields.title = title.trim();
+    if (content !== undefined) updateFields.content = content;
+
+    // Выполняем апдейт с проверкой версии (наш оптимистичный замок)
+    const [updatedNote] = await this.db
+      .update(notesTable)
+      .set(updateFields)
+      .where(
+        and(
+          eq(notesTable.id, id),
+          eq(notesTable.user_id, userId),
+          eq(notesTable.version, version) // Строго проверяем, что версия не изменилась!
+        )
+      )
+      .returning();
+
+    // 💥 Если база ничего не вернула, значит версия в БД уже больше, чем прислал фронтенд
+    if (!updatedNote) {
+      return { conflict: true, note: null };
+    }
+
+    // Возвращаем структуру, готовую для фронтенда (как в твоем getNoteById)
+    return {
+      conflict: false,
+      note: {
+        ...updatedNote,
+        preview: (updatedNote.content || '').substring(0, 150),
+        // Теги подтянутся кэшем или отдельным селектом, если нужно,
+        // но для сохранения контента в редакторе достаточно вернуть саму заметку
+      },
+    };
   }
 }
