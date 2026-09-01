@@ -9,8 +9,12 @@
     "packages/*"
   ],
   "scripts": {
+    "dev": "concurrently -n \"server,client\" -c \"bgBlue,bgGreen\" \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "npm run dev --workspace=@synapse-kms/server",
     "dev:client": "npm run dev --workspace=@synapse-kms/client",
+    "build": "npm run build --workspace=@synapse-kms/shared && npm run build --workspace=@synapse-kms/trpc && npm run build --workspace=@synapse-kms/server && npm run build --workspace=@synapse-kms/client",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
     "db:start": "podman compose up -d",
     "db:stop": "podman compose down",
     "db:generate": "npm run --prefix packages/db-scripts db:generate",
@@ -20,6 +24,7 @@
   "author": "v-ain",
   "license": "ISC",
   "devDependencies": {
+    "concurrently": "^10.0.5",
     "drizzle-kit": "^0.31.10"
   }
 }

@@ -13,6 +13,11 @@ export type NotePreview = Omit<Note, 'content' | 'is_deleted' | 'user_id'> & {
   tags: string[];
 };
 
+export type NoteWithAuthor = Pick<
+  Note,
+  'id' | 'title' | 'created_at' | 'updated_at' | 'preview'
+> & { authorEmail: string };
+
 // Экспортируем саму схему для бэкенда
 export * from './db-schema.js';
 

@@ -1,4 +1,4 @@
-import { router, publicProcedure, protectedProcedure } from '../trpc.js';
+import { router, protectedProcedure } from '../trpc.js';
 import { z } from 'zod';
 
 // Импортируем Zod-схему, которую вы создали ранее в shared
@@ -84,27 +84,6 @@ export const notesRouter = router({
       }
 
       return { success: true };
-    }),
-
-  // Привязка тега по имени (смарт-роут с ON CONFLICT)
-  attachTag: protectedProcedure
-    .input(
-      z.object({
-        note_id: z.string().uuid({ message: 'Некорректный формат ID заметки' }),
-        tag_name: z
-          .string()
-          .min(1, { message: 'Имя тега не может быть пустым' })
-          .max(30, { message: 'Имя тега слишком длинное (макс. 30 символов)' })
-          .trim(),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      // Передаем параметры в ваш контроллер/сервис заметок
-      return await ctx.noteService.attachTag(
-        input.note_id,
-        input.tag_name,
-        ctx.userId
-      );
     }),
 
   // 💾 Атомарное обновление контента с проверкой версии

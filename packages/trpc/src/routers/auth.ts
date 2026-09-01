@@ -1,18 +1,15 @@
 import { router, publicProcedure } from '../trpc.js';
 import { TRPCError } from '@trpc/server';
 import { authCredentialsSchema } from '@synapse-kms/shared';
-import { eq } from 'drizzle-orm';
-// Нам понадобится таблица пользователей из вашей схемы в shared
-import { usersTable } from '@synapse-kms/shared';
 
-// Настройки куки: HttpOnly, защита от CSRF через SameSite=Strict, кука живет 7 дней [health]
-const COOKIE_OPTIONS = {
-  path: '/',
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'strict' as const,
-  maxAge: 60 * 60 * 24 * 7, // 7 дней в секундах
-};
+// // Настройки куки: HttpOnly, защита от CSRF через SameSite=Strict, кука живет 7 дней [health]
+// const COOKIE_OPTIONS = {
+//   path: '/',
+//   httpOnly: true,
+//   secure: process.env.NODE_ENV === 'production',
+//   sameSite: 'strict' as const,
+//   maxAge: 60 * 60 * 24 * 7, // 7 дней в секундах
+// };
 
 export const authRouter = router({
   // 📝 1. РЕГИСТРАЦИЯ ПОЛЬЗОВАТЕЛЯ (Исправленный вариант)
@@ -25,9 +22,9 @@ export const authRouter = router({
         const newUser = await ctx.authService.registerUser(email, password);
 
         // Сразу после регистрации генерируем токен и логиним юзера [health]
-        const token = ctx.authService.generateToken(newUser.id);
-        if (ctx.res) {
-          ctx.res.setCookie('token', token, COOKIE_OPTIONS);
+        const token = ctx.authService.generateToken(newUser.id, newUser.role);
+        if (ctx.setAuthCookie) {
+          ctx.setAuthCookie(token);
         }
 
         return {
@@ -70,11 +67,10 @@ export const authRouter = router({
       }
 
       // Генерируем JWT токен
-      const token = ctx.authService.generateToken(user.id);
+      const token = ctx.authService.generateToken(user.id, user.role);
 
-      // 🪄 Сажаем HttpOnly куку прямо в браузер через ответ Fastify! [health]
-      if (ctx.res) {
-        ctx.res.setCookie('token', token, COOKIE_OPTIONS);
+      if (ctx.setAuthCookie) {
+        ctx.setAuthCookie(token);
       }
 
       return { success: true, user: { id: user.id, email: user.email } };
@@ -82,9 +78,8 @@ export const authRouter = router({
 
   // 🚪 3. ВЫХОД (ЛОГАУТ)
   logout: publicProcedure.mutation(({ ctx }) => {
-    if (ctx.res) {
-      // Стираем куку, ставя время её жизни в ноль [health]
-      ctx.res.setCookie('token', '', { ...COOKIE_OPTIONS, maxAge: 0 });
+    if (ctx.setAuthCookie) {
+      ctx.setAuthCookie('');
     }
     return { success: true };
   }),

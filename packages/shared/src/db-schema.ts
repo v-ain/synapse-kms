@@ -15,6 +15,7 @@ export const usersTable = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom().notNull(),
   email: text('email').unique().notNull(),
   password_hash: text('password_hash').notNull(),
+  role: text('role').default('user').notNull(),
 });
 
 // СХЕМА ТАБЛИЦЫ FOLDERS

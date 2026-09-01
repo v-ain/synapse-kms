@@ -28,14 +28,17 @@ export class AuthService {
   }
 
   // 3. Генерация компактного JWT токена
-  generateToken(userId: string): string {
-    return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
+  generateToken(userId: string, userRole: string): string {
+    return jwt.sign({ userId, userRole }, JWT_SECRET, { expiresIn: '7d' });
   }
 
   // 4. Валидация JWT токена
-  verifyToken(token: string): { userId: string } | null {
+  verifyToken(token: string): { userId: string; userRole: string } | null {
     try {
-      return jwt.verify(token, JWT_SECRET) as { userId: string };
+      return jwt.verify(token, JWT_SECRET) as {
+        userId: string;
+        userRole: string;
+      };
     } catch {
       return null;
     }

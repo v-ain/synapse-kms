@@ -159,12 +159,7 @@ export function NotesList() {
                     marginBottom: '5px',
                   }}
                 >
-                  <div
-                    className="text-gray-400 line-clamp-2 leading-relaxed"
-                    dangerouslySetInnerHTML={{
-                      __html: note.preview || 'Нет содержимого...',
-                    }}
-                  />
+                  {note.preview}...
                 </div>
                 <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                   {note.tags?.map((tag) => (

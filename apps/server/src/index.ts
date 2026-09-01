@@ -9,6 +9,7 @@ import { appRouter, createContext } from '@synapse-kms/trpc';
 import fastifyCookie from '@fastify/cookie';
 import { AuthService } from './services/auth.service.js';
 import { TagService } from './services/tag.service.js';
+import { AdminService } from './services/admin.service.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -55,6 +56,18 @@ await fastify.register(fastifyCookie, {
 
 const authService = new AuthService(db);
 const tagService = new TagService(db);
+const adminService = new AdminService(db);
+
+// Настройки куки: HttpOnly, защита от CSRF через SameSite=Strict, кука живет 7 дней [health]
+const COOKIE_OPTIONS = {
+  path: '/',
+  httpOnly: true,
+  secure: false,
+  sameSite: 'lax' as const,
+  maxAge: 60 * 60 * 24 * 7, // 7 дней в секундах
+};
+
+// apps/server/src/index.ts
 
 await fastify.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
@@ -62,26 +75,40 @@ await fastify.register(fastifyTRPCPlugin, {
   trpcOptions: {
     router: appRouter,
     createContext: ({ req, res }) => {
-      // 🪄 Вытаскиваем токен прямо из кук запроса
+      // Чистый, нативный Fastify! Плагин @fastify/cookie парсит куки строго сюда
       const token = req.cookies.token;
       let userId: string | null = null;
+      let userRole: string | null = null;
 
       if (token) {
-        // Проверяем валидность JWT токена через наш сервис
         const payload = authService.verifyToken(token);
         if (payload) {
           userId = payload.userId;
+          userRole = payload.userRole;
         }
       }
 
-      // Собираем полный контекст
+      // Возвращаем строго по нашему новому интерфейсу
       return createContext({
         noteService,
         folderService,
-        authService, // передаем инстанс сервиса авторизации
+        authService,
         tagService,
-        userId, // теперь здесь либо строка UUID, либо null (если гость)
-        res, // Передаем res Fastify в tRPC контекст!
+        adminService,
+        userId,
+        userRole,
+        // 🚀 Нативное замыкание на метод setCookie от Fastify!
+        setAuthCookie: (newToken) => {
+          if (newToken === '') {
+            res.setCookie('token', '', {
+              ...COOKIE_OPTIONS,
+              maxAge: 0,
+              path: '/',
+            });
+          } else {
+            res.setCookie('token', newToken, { ...COOKIE_OPTIONS, path: '/' });
+          }
+        },
       });
     },
   },

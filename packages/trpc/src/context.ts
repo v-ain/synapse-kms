@@ -1,19 +1,40 @@
-import type { FastifyReply } from 'fastify';
+export interface INoteService {
+  getNotes(query: any, userId: string): Promise<any>;
+  getNoteById(id: string, userId: string): Promise<any>;
+  createNote(payload: any, userId: string): Promise<any>;
+  updateNote(payload: any, userId: string): Promise<any>;
+  archiveNote(id: string, userId: string): Promise<any>;
+  bulkMove(payload: any, userId: string): Promise<any>;
+}
 
-import type {
-  NoteService,
-  FolderService,
-  AuthService,
-  TagService,
-} from '@synapse-kms/server';
+export interface IFolderService {
+  getFolders(userId: string): Promise<any>;
+  createFolder(title: string, userId: string): Promise<any>;
+  deleteFolder(id: string, userId: string): Promise<any>;
+}
+
+export interface IAuthService {
+  [key: string]: any;
+}
+
+export interface ITagService {
+  attachTag(noteId: string, tagName: string, userId: string): Promise<any>;
+  getUserTags(userId: string): Promise<any>;
+}
+
+export interface IAdminService {
+  getNotes(query: any, userId: string): Promise<any>;
+}
 
 export interface ContextOptions {
-  noteService: NoteService;
-  folderService: FolderService;
-  authService: AuthService;
-  tagService: TagService;
+  noteService: INoteService;
+  folderService: IFolderService;
+  authService: IAuthService;
+  tagService: ITagService;
+  adminService: IAdminService;
   userId: string | null;
-  res?: FastifyReply;
+  userRole: string | null;
+  setAuthCookie?: (token: string) => void;
 }
 
 export function createContext(opts: ContextOptions) {
@@ -22,9 +43,11 @@ export function createContext(opts: ContextOptions) {
     folderService: opts.folderService,
     authService: opts.authService,
     tagService: opts.tagService,
+    adminService: opts.adminService,
     userId: opts.userId,
-    res: opts.res,
+    userRole: opts.userRole,
+    setAuthCookie: opts.setAuthCookie,
   };
 }
 
-export type Context = Awaited<ReturnType<typeof createContext>>;
+export type Context = ReturnType<typeof createContext>;

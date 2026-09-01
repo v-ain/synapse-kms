@@ -23,6 +23,23 @@ export function useNotes() {
   );
 }
 
+export function useAdminNotes() {
+  const { activeFilter, activeFolderId, searchQuery } = useUIStore();
+
+  return trpc.admin.getNotes.useInfiniteQuery(
+    {
+      filter: activeFilter,
+      folder_id: activeFolderId || undefined,
+      limit: '20',
+      search: searchQuery || undefined, // 🔍 Передаем поиск в tRPC!
+    },
+    {
+      initialCursor: undefined,
+      getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
+    }
+  );
+}
+
 // Точечный хук для вытягивания ПОЛНОГО контента заметки по UUID
 export function useNote(id: string | undefined) {
   return trpc.notes.getById.useQuery(
