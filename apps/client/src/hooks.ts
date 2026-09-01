@@ -1,180 +1,180 @@
-import {
-  useQuery,
-  useMutation,
-  useQueryClient,
-  useInfiniteQuery,
-} from '@tanstack/react-query';
-import { api } from './api';
 import { useUIStore } from './store';
-import type {
-  Note,
-  Folder,
-  BulkMovePayload,
-  PaginatedResponse,
-  GetNotesQueryParams,
-  NotePreview,
-} from '@synapse-kms/shared';
+import { trpc } from './utils/trpc';
 
 // Хук получения всех папок
 export function useFolders() {
-  const { currentUserId } = useUIStore();
-  return useQuery<Folder[]>({
-    // Добавляем currentUserId первым элементом в ключ
-    queryKey: ['folders', currentUserId],
-    queryFn: () => api.get('/folders').then((res) => res.data),
-  });
+  return trpc.folders.getFolders.useQuery();
 }
 
 export function useNotes() {
-  const { activeFilter, activeFolderId, currentUserId } = useUIStore();
+  const { activeFilter, activeFolderId, searchQuery } = useUIStore();
 
-  return useInfiniteQuery<PaginatedResponse<NotePreview>>({
-    // Ключ кэша теперь учитывает пагинацию
-    queryKey: ['notes', currentUserId, activeFilter, activeFolderId],
-
-    // Функция запроса принимает специальный параметр pageParam, куда TanStack положит наш курсор
-    queryFn: ({ pageParam }) => {
-      const params: GetNotesQueryParams = {
-        filter: activeFilter,
-        folder_id: activeFolderId || undefined,
-        limit: '20',
-        cursor: (pageParam as string) || undefined, // курсор в параметры запроса к Fastify
-      };
-      return api.get('/notes', { params }).then((res) => res.data);
+  return trpc.notes.getNotes.useInfiniteQuery(
+    {
+      filter: activeFilter,
+      folder_id: activeFolderId || undefined,
+      limit: '20',
+      search: searchQuery || undefined, // 🔍 Передаем поиск в tRPC!
     },
-
-    // Говорим хуку, откуда брать следующий курсор для новой страницы
-    getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
-    initialPageParam: undefined, // Первая страница загружается без курсора
-  });
+    {
+      initialCursor: undefined,
+      getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
+    }
+  );
 }
 
-// 🎯 3. Точечный хук для вытягивания ПОЛНОГО контента заметки по UUID
-export function useNoteContent(id: string | null) {
-  return useQuery<Note>({
-    // Уникальный ключ кэша для каждого документа!
-    queryKey: ['note-content', id],
-    // Запрос сработает только если ID физически существует (не null)
-    queryFn: () => api.get(`/notes/${id}`).then((res) => res.data),
-    enabled: !!id,
-  });
+export function useAdminNotes() {
+  const { activeFilter, activeFolderId, searchQuery } = useUIStore();
+
+  return trpc.admin.getNotes.useInfiniteQuery(
+    {
+      filter: activeFilter,
+      folder_id: activeFolderId || undefined,
+      limit: '20',
+      search: searchQuery || undefined, // 🔍 Передаем поиск в tRPC!
+    },
+    {
+      initialCursor: undefined,
+      getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
+    }
+  );
 }
 
-// 🎯 4. Мутация создания папки
+// Точечный хук для вытягивания ПОЛНОГО контента заметки по UUID
+export function useNote(id: string | undefined) {
+  return trpc.notes.getById.useQuery(
+    { id: id! },
+    {
+      // Маленькая оптимизация: не делать запрос, если ID еще не выделился в интерфейсе
+      enabled: typeof id === 'string' && id.length > 0,
+      // Заметка обычно открывается на чтение/редактирование, кэш можно держать подольше
+      staleTime: 1000 * 60 * 5,
+    }
+  );
+}
+
+// Хук создания папки
 export function useCreateFolder() {
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
 
-  return useMutation({
-    mutationFn: (title: string) =>
-      api.post('/folders', { title }).then((res) => res.data),
-    // Как только папка успешно создалась на бэкенде — инвалидируем список папок
+  return trpc.folders.create.useMutation({
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['folders'] });
+      // Мгновенно обновляем список папок в боковом меню
+      utils.folders.getFolders.invalidate();
     },
   });
 }
 
-// 🎯 Обновленный хук создания заметки в frontend/src/hooks.ts
 export function useCreateNote() {
-  const queryClient = useQueryClient();
+  // Получаем доступ к утилитам контекста tRPC (это обёртка над queryClient)
+  const utils = trpc.useUtils();
 
-  return useMutation({
-    mutationFn: (data: {
-      title: string;
-      content: string;
-      folder_id: string | null;
-    }) => api.post('/notes', data).then((res) => res.data),
-
+  return trpc.notes.create.useMutation({
     onSuccess: () => {
-      // 1. Обновляем счетчики папок
-      queryClient.invalidateQueries({ queryKey: ['folders'] });
+      // 1. Обновляем счетчики папок.
+      // tRPC автоматически знает правильный ключ кэша для роута folders!
+      // (Подставь имя твоего будущего или текущего tRPC-роута папок, например folders.getFolders)
+      utils.folders.invalidate();
 
-      // 2. ⚡ МАГИЯ: Затираем ВООБЩЕ ВСЕ кэши, которые начинаются на ['notes']!
-      // Сбросится и вкладка 'all', и 'inbox', и любые папки. Полная синхронизация!
-      queryClient.invalidateQueries({ queryKey: ['notes'] });
+      // 2. ⚡ МАГИЯ: Затираем вообще все кэши бесконечных списков заметок!
+      // Метод invalidate() без параметров сбросит абсолютно все фильтры, папки и курсоры для notes.getNotes
+      utils.notes.getNotes.invalidate();
     },
   });
 }
 
-// 📦 6. Мутация пакетного перемещения с контролем версий
+// Мутация пакетного перемещения с контролем версий
 export function useBulkMoveNotes() {
-  const queryClient = useQueryClient();
-  const { activeFilter, activeFolderId } = useUIStore();
+  const utils = trpc.useUtils();
 
-  return useMutation({
-    mutationFn: (data: BulkMovePayload) =>
-      api.post('/notes/bulk-move', data).then((res) => res.data),
-
+  return trpc.notes.bulkMove.useMutation({
     // При успехе сносим кэш папок (счетчики) и кэш заметок (лента)
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['folders'] });
-      queryClient.invalidateQueries({ queryKey: ['notes'] }); // Сбросит ВСЕ вкладки разом!
+      utils.folders.getFolders.invalidate();
+      utils.notes.getNotes.invalidate(); // Сбросит ВСЕ вкладки разом через tRPC!
     },
-    // А вот тут ловим наш оптимистичный замок 409!
-    onError: (error: any) => {
-      if (error.response?.status === 409) {
+    // Ловим наш оптимистичный замок 409 (в tRPC это CONFLICT)
+    onError: (error) => {
+      if (error.data?.code === 'CONFLICT') {
         alert(
           '💥 Ошибка конкуренции! Одна из заметок уже была перемещена или изменена. Лента сейчас обновится.'
         );
-        queryClient.invalidateQueries({ queryKey: ['notes'] });
+        utils.notes.getNotes.invalidate();
       } else {
-        alert('Что-то пошло не так при перемещении...');
+        alert(error.message || 'Что-то пошло не так при перемещении...');
       }
     },
   });
 }
 
-// 🗑️ 7. Мутация удаления папки
+// Хук удаления папки
 export function useDeleteFolder() {
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
   const { setActiveFolder } = useUIStore();
 
-  return useMutation({
-    mutationFn: (id: string) =>
-      api.delete(`/folders/${id}`).then((res) => res.data),
+  return trpc.folders.delete.useMutation({
     onSuccess: () => {
       // Сбрасываем активную папку в Zustand, чтобы интерфейс не смотрел на удаленную сущность
       setActiveFolder(null);
-      // Инвалидируем папки и заметки (ведь заметки улетели во Входящие!)
-      queryClient.invalidateQueries({ queryKey: ['folders'] });
-      queryClient.invalidateQueries({ queryKey: ['notes'] });
+      utils.folders.getFolders.invalidate();
+      // Опционально: если при удалении папки заметки из неё падают в 'inbox',
+      // можно также инвалидировать и списки заметок:
+      utils.notes.getNotes.invalidate();
     },
   });
 }
 
-// 📦 8. Мутация мягкого удаления (архивации) ОДНОЙ заметки
+// Мутация мягкого удаления (архивации) ОДНОЙ заметки
 export function useArchiveNote() {
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
   const { setActiveNote } = useUIStore();
 
-  return useMutation({
-    mutationFn: (id: string) =>
-      api.patch(`/notes/${id}/archive`).then((res) => res.data),
+  return trpc.notes.archive.useMutation({
     onSuccess: () => {
-      setActiveNote(null); // Закрываем правое окно просмотра
-      queryClient.invalidateQueries({ queryKey: ['folders'] });
-      queryClient.invalidateQueries({ queryKey: ['notes'] });
+      setActiveNote(null);
+      utils.notes.getNotes.invalidate();
     },
   });
 }
 
-// 🏷️ 9. Мутация привязки тега к заметке
+// Мутация привязки тега к заметке
 export function useAttachTag() {
-  const queryClient = useQueryClient();
+  const utils = trpc.useUtils();
 
-  return useMutation({
-    mutationFn: (data: { note_id: string; tag_name: string }) =>
-      api.post('/notes/attach-tag', data).then((res) => res.data),
-    onSuccess: () => {
-      // Перезапрашиваем списки заметок и контент, чтобы тег сразу отрендерился на экране
-      queryClient.invalidateQueries({ queryKey: ['notes'] });
-      queryClient.invalidateQueries({ queryKey: ['note-content'] });
+  return trpc.tags.attach.useMutation({
+    onSuccess: (_data, variables) => {
+      // Обновляем ленту заметок (чтобы тег появился на превью)
+      utils.notes.getNotes.invalidate();
+
+      // Обновляем контент текущей открытой заметки
+      if (variables) {
+        utils.notes.getById.invalidate({ id: variables.note_id });
+      }
     },
-    onError: (err: any) => {
-      console.error('Ошибка привязки тега:', err.response?.data || err.message);
-      alert(
-        'Ошибка 400! Проверь консоль браузера (вкладку Network), чтобы увидеть схему валидации бэкенда.'
-      );
+    onError: (err) => {
+      alert(`Ошибка привязки тега: ${err.message}`);
+    },
+  });
+}
+
+export function useUpdateNote() {
+  const utils = trpc.useUtils();
+
+  return trpc.notes.update.useMutation({
+    onSuccess: (updatedNote) => {
+      // 🪄 Тчечно обновляем кэш конкретно этой заметки, чтобы зафиксировать новую версию
+      utils.notes.getById.setData({ id: updatedNote.id }, updatedNote);
+
+      // Мягко уведомляем списки заметок, что данные освежились (без жесткого рефетча посреди ввода)
+      utils.notes.getNotes.invalidate();
+    },
+    onError: (error) => {
+      if (error.data?.code === 'CONFLICT') {
+        console.error(
+          '⚠️ Оптимистичный замок: сохранение отклонено, данные устарели.'
+        );
+        // Здесь можно показать неагрессивный варнинг в статус-баре в стиле ranger
+      }
     },
   });
 }

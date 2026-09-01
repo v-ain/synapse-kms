@@ -6,6 +6,7 @@ import {
   useCreateNote,
   useBulkMoveNotes,
 } from '../hooks';
+import { SearchBar } from './SearchBar';
 
 export function NotesList() {
   const {
@@ -65,6 +66,7 @@ export function NotesList() {
 
   return (
     <div className="notes-panel">
+      <SearchBar />
       <h4>
         {activeFilter === 'all' && 'Все активные заметки'}
         {activeFilter === 'inbox' && 'Входящие документы'}

@@ -1,17 +1,12 @@
 import React, { useState } from 'react';
 import { useUIStore } from '../store';
-import {
-  useNotes,
-  useNoteContent,
-  useArchiveNote,
-  useAttachTag,
-} from '../hooks';
+import { useNotes, useNote, useArchiveNote, useAttachTag } from '../hooks';
+import { NoteEditor } from './NoteEditor';
 
 export function NoteViewer() {
   const { activeNoteId } = useUIStore();
   const { data } = useNotes();
-  const { data: fullNote, isLoading: contentLoading } =
-    useNoteContent(activeNoteId);
+  const { data: fullNote, isLoading: contentLoading } = useNote(activeNoteId);
   const archiveNoteMutation = useArchiveNote();
   const attachTagMutation = useAttachTag();
   const [newTagName, setNewTagName] = useState('');
@@ -68,7 +63,7 @@ export function NoteViewer() {
         <button
           onClick={() => {
             if (confirm('Удалить заметку в архив?'))
-              archiveNoteMutation.mutate(activeNoteId);
+              archiveNoteMutation.mutate({ id: activeNoteId });
           }}
           style={{
             padding: '6px 12px',
@@ -128,28 +123,30 @@ export function NoteViewer() {
           marginBottom: '20px',
         }}
       />
-
       {contentLoading ? (
         <p style={{ color: '#aaa', fontStyle: 'italic' }}>
           Синхронизация синапса знаний с Podman...
         </p>
       ) : (
-        <div
-          style={{
-            lineHeight: '1.6',
-            whiteSpace: 'pre-wrap',
-            background: '#fff',
-            padding: '15px',
-            borderRadius: '6px',
-            border: '1px solid #f0f0f0',
-          }}
-        >
-          {fullNote?.content || (
-            <span style={{ color: '#aaa', fontStyle: 'italic' }}>
-              Нет контента в этой заметке...
-            </span>
-          )}
-        </div>
+        <>
+          <NoteEditor note={fullNote} />
+          <div
+            style={{
+              lineHeight: '1.6',
+              whiteSpace: 'pre-wrap',
+              background: '#fff',
+              padding: '15px',
+              borderRadius: '6px',
+              border: '1px solid #f0f0f0',
+            }}
+          >
+            {fullNote?.content || (
+              <span style={{ color: '#aaa', fontStyle: 'italic' }}>
+                Нет контента в этой заметке...
+              </span>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

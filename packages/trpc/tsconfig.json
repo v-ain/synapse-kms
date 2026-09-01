@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@synapse-kms/server/*": ["../../apps/server/*"],
+      "@synapse-kms/server": ["../../apps/server/src/index.ts"],
+      "@synapse-kms/shared": ["../../packages/shared/src/index.ts"]
+    },
+    "strict": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "esModuleInterop": true,
+    "isolatedModules": true
+  },
+  "include": ["src/**/*"]
+}

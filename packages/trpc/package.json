@@ -1,5 +1,5 @@
 {
-  "name": "@synapse-kms/shared",
+  "name": "@synapse-kms/trpc",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.2",
+    "@synapse-kms/shared": "*",
+    "@trpc/server": "^11.0.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

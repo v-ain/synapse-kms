@@ -14,9 +14,12 @@ export function Sidebar() {
   const handleCreateFolder = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFolderTitle.trim()) return;
-    createFolderMutation.mutate(newFolderTitle, {
-      onSuccess: () => setNewFolderTitle(''),
-    });
+    createFolderMutation.mutate(
+      { title: newFolderTitle },
+      {
+        onSuccess: () => setNewFolderTitle(''),
+      }
+    );
   };
 
   return (
@@ -99,7 +102,7 @@ export function Sidebar() {
                 onClick={(e) => {
                   e.stopPropagation();
                   if (confirm('Удалить папку?'))
-                    deleteFolderMutation.mutate(folder.id);
+                    deleteFolderMutation.mutate({ id: folder.id });
                 }}
                 style={{
                   color: 'red',

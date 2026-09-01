@@ -1,10 +1,15 @@
 import Fastify from 'fastify';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
-import { notesRoutes } from './routes/notes.js';
-import { foldersRoutes } from './routes/folders.js';
-// ( foldersRoutes и tagsRoutes, декомпозировать )
 import { ZodError } from 'zod';
+import { FolderService } from './services/folder.service.js';
+import { NoteService } from './services/note.service.js';
+import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
+import { appRouter, createContext } from '@synapse-kms/trpc';
+import fastifyCookie from '@fastify/cookie';
+import { AuthService } from './services/auth.service.js';
+import { TagService } from './services/tag.service.js';
+import { AdminService } from './services/admin.service.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -21,6 +26,9 @@ declare module 'fastify' {
     userId: string;
   }
 }
+
+const noteService = new NoteService(db);
+const folderService = new FolderService(db);
 
 // ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК ВАЛИДАЦИИ
 fastify.setErrorHandler((error, request, reply) => {
@@ -42,24 +50,68 @@ fastify.setErrorHandler((error, request, reply) => {
   reply.send(error);
 });
 
-// Ловим заголовок авторизации перед каждым запросом!
-fastify.addHook('preHandler', async (request, reply) => {
-  const userId = request.headers['x-user-id'];
-
-  if (!userId || typeof userId !== 'string') {
-    return reply
-      .status(401)
-      .send({ error: 'Unauthorized. x-user-id header is missing.' });
-  }
-
-  // Сохраняем UUID юзера в контекст запроса Fastify
-  request.userId = userId;
+await fastify.register(fastifyCookie, {
+  secret: process.env.COOKIE_SECRET || 'my-cookie-secret-key-change-me', // для подписи кук при необходимости
 });
 
-// Регистрируем изолированный плагин роутов заметок
-fastify.register(async (instance) => {
-  await notesRoutes(instance, db);
-  await foldersRoutes(instance, db);
+const authService = new AuthService(db);
+const tagService = new TagService(db);
+const adminService = new AdminService(db);
+
+// Настройки куки: HttpOnly, защита от CSRF через SameSite=Strict, кука живет 7 дней [health]
+const COOKIE_OPTIONS = {
+  path: '/',
+  httpOnly: true,
+  secure: false,
+  sameSite: 'lax' as const,
+  maxAge: 60 * 60 * 24 * 7, // 7 дней в секундах
+};
+
+// apps/server/src/index.ts
+
+await fastify.register(fastifyTRPCPlugin, {
+  prefix: '/trpc',
+  useWss: false,
+  trpcOptions: {
+    router: appRouter,
+    createContext: ({ req, res }) => {
+      // Чистый, нативный Fastify! Плагин @fastify/cookie парсит куки строго сюда
+      const token = req.cookies.token;
+      let userId: string | null = null;
+      let userRole: string | null = null;
+
+      if (token) {
+        const payload = authService.verifyToken(token);
+        if (payload) {
+          userId = payload.userId;
+          userRole = payload.userRole;
+        }
+      }
+
+      // Возвращаем строго по нашему новому интерфейсу
+      return createContext({
+        noteService,
+        folderService,
+        authService,
+        tagService,
+        adminService,
+        userId,
+        userRole,
+        // 🚀 Нативное замыкание на метод setCookie от Fastify!
+        setAuthCookie: (newToken) => {
+          if (newToken === '') {
+            res.setCookie('token', '', {
+              ...COOKIE_OPTIONS,
+              maxAge: 0,
+              path: '/',
+            });
+          } else {
+            res.setCookie('token', newToken, { ...COOKIE_OPTIONS, path: '/' });
+          }
+        },
+      });
+    },
+  },
 });
 
 // fastify.get('/tags', async () => {
@@ -76,3 +128,8 @@ const start = async () => {
   }
 };
 start();
+
+export type { NoteService } from './services/note.service.js';
+export type { FolderService } from './services/folder.service.js';
+export type { AuthService } from './services/auth.service.js';
+export type { TagService } from './services/tag.service.js';

@@ -7,12 +7,15 @@ import {
   boolean,
   timestamp,
   varchar,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 
 // СХЕМА ТАБЛИЦЫ USERS
 export const usersTable = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom().notNull(),
   email: text('email').unique().notNull(),
+  password_hash: text('password_hash').notNull(),
+  role: text('role').default('user').notNull(),
 });
 
 // СХЕМА ТАБЛИЦЫ FOLDERS
@@ -58,14 +61,21 @@ export const tagsTable = pgTable('tags', {
 });
 
 // Сводная таблица связей заметок и тегов (Many-to-Many)
-export const notesTagsTable = pgTable('notes_tags', {
-  note_id: uuid('note_id')
-    .references(() => notesTable.id, { onDelete: 'cascade' })
-    .notNull(),
-  tag_id: uuid('tag_id')
-    .references(() => tagsTable.id, { onDelete: 'cascade' })
-    .notNull(),
-});
+export const notesTagsTable = pgTable(
+  'notes_tags',
+  {
+    note_id: uuid('note_id')
+      .references(() => notesTable.id, { onDelete: 'cascade' })
+      .notNull(),
+    tag_id: uuid('tag_id')
+      .references(() => tagsTable.id, { onDelete: 'cascade' })
+      .notNull(),
+  },
+  (t) => [
+    // Составной первичный ключ, чтобы нельзя было привязать один тег к заметке дважды
+    primaryKey({ columns: [t.note_id, t.tag_id] }),
+  ]
+);
 
 // СВЯЗИ ДЛЯ ЗАМЕТОК
 export const notesRelations = relations(notesTable, ({ one, many }) => ({

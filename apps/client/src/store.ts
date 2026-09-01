@@ -8,6 +8,7 @@ interface UIState {
   activeNoteId: string | null;
   selectedNoteIds: string[];
   targetFolderId: string;
+  searchQuery: string;
 
   currentUserId: string;
 
@@ -19,6 +20,7 @@ interface UIState {
   setTargetFolder: (folderId: string) => void;
 
   setCurrentUserId: (userId: string) => void;
+  setSearchQuery: (inputText: string) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -27,6 +29,7 @@ export const useUIStore = create<UIState>((set) => ({
   activeNoteId: null,
   selectedNoteIds: [],
   targetFolderId: 'inbox',
+  searchQuery: '',
 
   // По умолчанию сидим под Юзером 1
   currentUserId: '11111111-1111-1111-1111-111111111111',
@@ -64,4 +67,5 @@ export const useUIStore = create<UIState>((set) => ({
       activeNoteId: null,
       selectedNoteIds: [],
     }),
+  setSearchQuery: (inputSearchText) => set({ searchQuery: inputSearchText }),
 }));
