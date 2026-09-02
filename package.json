@@ -1,7 +1,9 @@
 {
   "name": "synapse-kms",
   "version": "1.0.0",
-  "description": "High-performance, enterprise-grade distributed knowledge management ecosystem built with a focus on strict low-level resource management, predictable data constraints, and high-concurrency architecture.",
+  "author": "v-ain",
+  "license": "MIT",
+  "description": "Monolithic knowledge management platform built with tRPC v11, Drizzle ORM, and PostgreSQL.",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -19,12 +21,15 @@
     "db:stop": "podman compose down",
     "db:generate": "npm run --prefix packages/db-scripts db:generate",
     "db:migrate": "npm run --prefix packages/db-scripts db:migrate",
-    "db:studio": "npm run --prefix packages/db-scripts db:studio"
+    "db:studio": "npm run --prefix packages/db-scripts db:studio",
+    "clean": "rimraf node_modules package-lock.json apps/**/node_modules apps/**/dist apps/**/build packages/**/node_modules packages/**/dist packages/**/build",
+    "reinstall": "npm run clean && npm install --ignore-scripts"
   },
-  "author": "v-ain",
-  "license": "ISC",
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
   "devDependencies": {
     "concurrently": "^10.0.5",
-    "drizzle-kit": "^0.31.10"
+    "rimraf": "^6.1.3"
   }
 }

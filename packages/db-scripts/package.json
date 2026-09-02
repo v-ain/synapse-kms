@@ -1,6 +1,7 @@
 {
   "name": "@synapse-kms/db-scripts",
   "version": "1.0.0",
+  "author": "v-ain",
   "private": true,
   "type": "module",
   "scripts": {
