@@ -13,9 +13,14 @@ import { AdminService } from './services/admin.service.js';
 
 const fastify = Fastify({ logger: true });
 
-const queryConnection = postgres(
-  'postgres://myuser:mypassword@localhost:5432/mydb'
-);
+const PORT_SERVER_RUNNING = process.env.SERVER_PORT;
+const connectionString = process.env.DATABASE_URL;
+
+if (!connectionString) {
+  throw new Error('DATABASE_URL is not defined in .env file');
+}
+
+const queryConnection = postgres(connectionString);
 
 // Создаем типизированный клиент СУБД
 const db = drizzle(queryConnection);
@@ -120,8 +125,8 @@ await fastify.register(fastifyTRPCPlugin, {
 
 const start = async () => {
   try {
-    await fastify.listen({ port: 3000, host: '0.0.0.0' });
-    console.log('🚀 Бронебойный сервер Synapse KMS запущен на порту 3000!');
+    await fastify.listen({ port: PORT_SERVER_RUNNING, host: '0.0.0.0' });
+    console.log('🚀 Бронебойный сервер Synapse KMS запущен на порту : ' + PORT_SERVER_RUNNING);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

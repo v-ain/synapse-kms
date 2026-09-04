@@ -10,9 +10,13 @@ const __dirname = path.dirname(__filename);
 async function main() {
   console.log('⏳ Начинаем применение миграций к БД в Podman...');
 
-  const dbUrl =
-    process.env.DATABASE_URL ||
-    'postgres://myuser:mypassword@localhost:5432/mydb';
+  const dbUrl = process.env.DATABASE_URL;
+  if (!dbUrl) {
+    throw new Error(
+      '❌ Критическая ошибка: Переменная окружения DATABASE_URL не задана!'
+    );
+  }
+
   const migrationClient = postgres(dbUrl, { max: 1 });
   const db = drizzle(migrationClient);
 

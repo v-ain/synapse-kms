@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx migrate.ts",
+    "db:migrate": "tsx --env-file=../../.env migrate.ts",
     "db:studio": "drizzle-kit studio --host 0.0.0.0"
   },
   "dependencies": {

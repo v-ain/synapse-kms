@@ -3,16 +3,16 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: monorepo_postgres
+    container_name: synapse_kms_postgres_prod
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydb
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
     ports:
-      - '5432:5432'
+      - '${DB_PORT}:5432'
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - synapse_kms_pgdata_prod:/var/lib/postgresql/data
     restart: unless-stopped
 
 volumes:
-  pgdata:
+  synapse_kms_pgdata_prod:

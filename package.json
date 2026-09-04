@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "concurrently": "^10.0.5",
+    "dotenv": "^17.4.2",
     "rimraf": "^6.1.3"
   }
 }
