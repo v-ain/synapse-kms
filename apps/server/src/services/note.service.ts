@@ -17,22 +17,12 @@ import type {
   UpdateNotePayload,
 } from '@synapse-kms/shared';
 
-import {
-  PostgresJsDatabase,
-  PostgresJsTransaction,
-} from 'drizzle-orm/postgres-js';
+import { INoteService } from '../../../../packages/trpc/src/context.js';
+import { DrizzleDB } from 'src/db.js';
 
-const dbSchema = {
-  usersTable,
-  foldersTable,
-  notesTable,
-  tagsTable,
-  notesTagsTable,
-};
-
-export class NoteService {
+export class NoteService implements INoteService {
   // Внедряем типизированный инстанс 'db' вместо сырого 'sql'
-  constructor(private db: PostgresJsDatabase<typeof dbSchema>) {}
+  constructor(private db: DrizzleDB) {}
 
   // 1. ПОЛУЧИТЬ КУРСОРНУЮ ПАГИНАЦИЮ ЗАМЕТОК (Highload O(1) с тегами)
   async getNotes(

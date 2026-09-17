@@ -1,10 +1,23 @@
+import type {
+  BulkMovePayload,
+  CreateNotePayload,
+  GetNotesQueryParams,
+  Note,
+  NotePreview,
+  PaginatedResponse,
+  UpdateNotePayload,
+} from '@synapse-kms/shared';
+
 export interface INoteService {
-  getNotes(query: any, userId: string): Promise<any>;
-  getNoteById(id: string, userId: string): Promise<any>;
-  createNote(payload: any, userId: string): Promise<any>;
-  updateNote(payload: any, userId: string): Promise<any>;
+  getNotes(
+    query: GetNotesQueryParams,
+    userId: string
+  ): Promise<PaginatedResponse<NotePreview>>;
+  getNoteById(id: string, userId: string): Promise<Note | null>;
+  createNote(payload: CreateNotePayload, userId: string): Promise<Note>;
+  updateNote(payload: UpdateNotePayload, userId: string): Promise<any>;
   archiveNote(id: string, userId: string): Promise<any>;
-  bulkMove(payload: any, userId: string): Promise<any>;
+  bulkMove(payload: BulkMovePayload, userId: string): Promise<any>;
 }
 
 export interface IFolderService {

@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import { config } from './config.js';
+import { db } from './db.js';
 import { ZodError } from 'zod';
 import { FolderService } from './services/folder.service.js';
 import { NoteService } from './services/note.service.js';
@@ -12,18 +12,6 @@ import { TagService } from './services/tag.service.js';
 import { AdminService } from './services/admin.service.js';
 
 const fastify = Fastify({ logger: true });
-
-const PORT_SERVER_RUNNING = process.env.SERVER_PORT;
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  throw new Error('DATABASE_URL is not defined in .env file');
-}
-
-const queryConnection = postgres(connectionString);
-
-// Создаем типизированный клиент СУБД
-const db = drizzle(queryConnection);
 
 // Расширяем типы Fastify, чтобы TypeScript знал про наше новое поле в request
 declare module 'fastify' {
@@ -125,16 +113,13 @@ await fastify.register(fastifyTRPCPlugin, {
 
 const start = async () => {
   try {
-    await fastify.listen({ port: PORT_SERVER_RUNNING, host: '0.0.0.0' });
-    console.log('🚀 Бронебойный сервер Synapse KMS запущен на порту : ' + PORT_SERVER_RUNNING);
+    await fastify.listen({ port: config.serverPort, host: '0.0.0.0' });
+    console.log(
+      'Сервер Synapse KMS успешно запущен на порту : ' + config.serverPort
+    );
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
   }
 };
 start();
-
-export type { NoteService } from './services/note.service.js';
-export type { FolderService } from './services/folder.service.js';
-export type { AuthService } from './services/auth.service.js';
-export type { TagService } from './services/tag.service.js';

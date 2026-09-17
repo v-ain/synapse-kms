@@ -20,7 +20,7 @@ export const notesRouter = router({
 
   // Роут создания заметки
   create: protectedProcedure
-    .input(CreateNoteSchema) // Zod жестко проверяет входящие данные с фронтенда!
+    .input(CreateNoteSchema)
     .mutation(async ({ input, ctx }) => {
       // tRPC передает валидный input прямо в ваш готовый контроллер!
       const newNote = await ctx.noteService.createNote(input, ctx.userId);
