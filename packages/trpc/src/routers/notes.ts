@@ -6,6 +6,7 @@ import {
   BulkMoveSchema,
   CreateNoteSchema,
   getNotesQueryParamsSchema,
+  UpdateNotePayloadSchema,
 } from '@synapse-kms/shared';
 import { TRPCError } from '@trpc/server';
 
@@ -88,14 +89,7 @@ export const notesRouter = router({
 
   // 💾 Атомарное обновление контента с проверкой версии
   update: protectedProcedure
-    .input(
-      z.object({
-        id: z.string().uuid(),
-        version: z.number(), // передаем текущую версию с фронтенда
-        title: z.string().optional(),
-        content: z.string().optional(),
-      })
-    )
+    .input(UpdateNotePayloadSchema)
     .mutation(async ({ input, ctx }) => {
       // Вызываем метод сервиса, который проверяет версию в БД перед UPDATE
       const result = await ctx.noteService.updateNote(input, ctx.userId);

@@ -4,19 +4,12 @@ import { foldersTable, notesTable } from './db-schema.js';
 
 export type Folder = InferSelectModel<typeof foldersTable>;
 
-// 1. Берем чистый тип из Drizzle
-type RawNote = InferSelectModel<typeof notesTable>;
-
-// 2. Вырезаем даты и заменяем их на string
-export type Note = Omit<RawNote, 'created_at' | 'updated_at'> & {
-  created_at: string;
-  updated_at: string;
+export type Note = InferSelectModel<typeof notesTable> & {
   preview?: string;
   tags?: string[];
 };
 
-// 3. Для NotePreview поля автоматически унаследуют string для дат из нового типа Note!
-// Делаем preview и tags строго обязательными для превью
+// Превью тоже автоматически использует string для дат
 export type NotePreview = Omit<
   Note,
   'content' | 'is_deleted' | 'user_id' | 'preview' | 'tags'
@@ -56,12 +49,16 @@ export const CreateNoteSchema = z.object({
   folder_id: z.string().uuid().nullable(),
 });
 
-export interface UpdateNotePayload {
-  id: string;
-  version: number;
-  title?: string;
-  content?: string;
-}
+// Пример правильной Zod-схемы для апдейта заметки
+export const UpdateNotePayloadSchema = z.object({
+  id: z.string().uuid(),
+  version: z.number().int(),
+  title: z.string().optional(),
+  content: z.string().optional(),
+});
+
+// Тип автоматически выведется правильно:
+export type UpdateNotePayload = z.infer<typeof UpdateNotePayloadSchema>;
 
 // Схема пакетного перемещения заметок
 export const BulkMoveSchema = z.object({

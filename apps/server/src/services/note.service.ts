@@ -4,7 +4,6 @@ import {
   foldersTable,
   notesTagsTable,
   tagsTable,
-  usersTable,
 } from '@synapse-kms/shared';
 
 import type {
@@ -17,7 +16,7 @@ import type {
   UpdateNotePayload,
 } from '@synapse-kms/shared';
 
-import { INoteService } from '../../../../packages/trpc/src/context.js';
+import { INoteService } from '@synapse-kms/trpc';
 import { DrizzleDB } from 'src/db.js';
 
 export class NoteService implements INoteService {
@@ -50,7 +49,7 @@ export class NoteService implements INoteService {
 
     // Магия Курсора: если передан, берем записи строго старше таймстемпа курсора
     if (cursor) {
-      conditions.push(lt(notesTable.updated_at, new Date(cursor)));
+      conditions.push(lt(notesTable.updated_at, cursor));
     }
 
     // if (query.search && query.search.trim().length > 0) {
@@ -142,10 +141,7 @@ export class NoteService implements INoteService {
     let nextCursor: string | null = null;
     if (items.length > 0) {
       const lastItem = items[items.length - 1];
-      nextCursor =
-        lastItem.updated_at instanceof Date
-          ? lastItem.updated_at.toISOString()
-          : String(lastItem.updated_at);
+      nextCursor = lastItem.updated_at;
     }
 
     return {
@@ -326,60 +322,10 @@ export class NoteService implements INoteService {
     return result;
   }
 
-  // 🏷️ 6. ПРИВЯЗКА ТЕГА К ЗАМЕТКЕ (Many-to-Many ACID логика)
-  async attachTag(
-    noteId: string,
-    tagName: string,
+  async updateNote(
+    payload: UpdateNotePayload,
     userId: string
-  ): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      // Проверяем, существует ли тег, если нет — создаем атомарно
-      let [tag] = await tx
-        .select()
-        .from(tagsTable)
-        .where(eq(tagsTable.name, tagName))
-        .limit(1);
-
-      if (!tag) {
-        [tag] = await tx
-          .insert(tagsTable)
-          .values({ name: tagName })
-          .returning();
-      }
-
-      // Проверяем дубликат связи, чтобы не сломать уникальность
-      const [linkExists] = await tx
-        .select()
-        .from(notesTagsTable)
-        .where(
-          and(
-            eq(notesTagsTable.note_id, noteId),
-            eq(notesTagsTable.tag_id, tag.id)
-          )
-        )
-        .limit(1);
-
-      if (!linkExists) {
-        // Вставляем связь в Many-to-Many таблицу
-        await tx
-          .insert(notesTagsTable)
-          .values({ note_id: noteId, tag_id: tag.id });
-
-        // Инкрементируем версию заметки, так как ее метаданные изменились!
-        await tx
-          .update(notesTable)
-          .set({
-            version: sql`${notesTable.version} + 1`,
-            updated_at: sql`CURRENT_TIMESTAMP`,
-          })
-          .where(
-            and(eq(notesTable.id, noteId), eq(notesTable.user_id, userId))
-          );
-      }
-    });
-  }
-
-  async updateNote(payload: UpdateNotePayload, userId: string) {
+  ): Promise<{ conflict: true; note: null } | { conflict: false; note: Note }> {
     const { id, version, title, content } = payload;
 
     // Собираем динамический объект полей для апдейта

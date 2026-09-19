@@ -9,15 +9,50 @@ import type {
 } from '@synapse-kms/shared';
 
 export interface INoteService {
+  /**
+   * Получение пагинированного списка превью заметок (даты: string)
+   */
   getNotes(
     query: GetNotesQueryParams,
     userId: string
   ): Promise<PaginatedResponse<NotePreview>>;
+
+  /**
+   * Получение полной заметки по ID (даты: string)
+   */
   getNoteById(id: string, userId: string): Promise<Note | null>;
+
+  /**
+   * Создание новой заметки (даты: string)
+   */
   createNote(payload: CreateNotePayload, userId: string): Promise<Note>;
-  updateNote(payload: UpdateNotePayload, userId: string): Promise<any>;
-  archiveNote(id: string, userId: string): Promise<any>;
-  bulkMove(payload: BulkMovePayload, userId: string): Promise<any>;
+
+  /**
+   * Обновление данных заметки с проверкой версии (Optimistic Lock)
+   */
+  updateNote(
+    payload: UpdateNotePayload,
+    userId: string
+  ): Promise<{ conflict: true; note: null } | { conflict: false; note: Note }>;
+
+  /**
+   * Архивация заметки
+   */
+  archiveNote(
+    id: string,
+    userId: string
+  ): Promise<
+    | { error: string; status: number; success?: never }
+    | { error: null; success: true; status?: never }
+  >;
+
+  /**
+   * Массовое перемещение заметок с флагом оптимистичной блокировки
+   */
+  bulkMove(
+    payload: BulkMovePayload,
+    userId: string
+  ): Promise<{ success: boolean; conflict?: boolean }>;
 }
 
 export interface IFolderService {
