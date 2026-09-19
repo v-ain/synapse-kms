@@ -2,8 +2,6 @@ import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
 import { foldersTable, notesTable } from './db-schema.js';
 
-export type Folder = InferSelectModel<typeof foldersTable>;
-
 export type Note = InferSelectModel<typeof notesTable> & {
   preview?: string;
   tags?: string[];
@@ -24,6 +22,26 @@ export type NoteWithAuthor = Pick<
 > & { authorEmail: string };
 
 // export type NotesFilter = 'all' | 'inbox' | 'folder';
+
+export type Folder = InferSelectModel<typeof foldersTable>;
+
+// Схема для создания папки
+export const CreateFolderSchema = z.object({
+  title: z
+    .string()
+    .min(1, { message: 'Название папки не может быть пустым' })
+    .max(50, { message: 'Название папки не должно превышать 50 символов' })
+    .transform((val) => val.trim()),
+});
+
+// Схема для удаления папки
+export const DeleteFolderSchema = z.object({
+  id: z.string().uuid({ message: 'Некорректный формат ID папки' }),
+});
+
+// Экспортируем типы инференса для использования в контрактах сервисов
+export type CreateFolderInput = z.infer<typeof CreateFolderSchema>;
+export type DeleteFolderInput = z.infer<typeof DeleteFolderSchema>;
 
 export interface Tag {
   id: string;

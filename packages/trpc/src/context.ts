@@ -1,6 +1,7 @@
 import type {
   BulkMovePayload,
   CreateNotePayload,
+  Folder,
   GetNotesQueryParams,
   Note,
   NotePreview,
@@ -56,9 +57,26 @@ export interface INoteService {
 }
 
 export interface IFolderService {
-  getFolders(userId: string): Promise<any>;
-  createFolder(title: string, userId: string): Promise<any>;
-  deleteFolder(id: string, userId: string): Promise<any>;
+  /**
+   * Получение списка всех активных (не удаленных) папок пользователя
+   */
+  getFolders(userId: string): Promise<Folder[]>;
+
+  /**
+   * Создание новой папки
+   */
+  createFolder(title: string, userId: string): Promise<Folder>;
+
+  /**
+   * Безопасное удаление папки (Soft delete)
+   */
+  deleteFolder(
+    id: string,
+    userId: string
+  ): Promise<
+    | { error: string; status: number; success?: never }
+    | { error: null; success: true; status?: never }
+  >;
 }
 
 export interface IAuthService {

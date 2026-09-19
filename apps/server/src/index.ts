@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
 import { db } from './db.js';
 import { ZodError } from 'zod';
@@ -67,7 +67,13 @@ await fastify.register(fastifyTRPCPlugin, {
   useWss: false,
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req, res }) => {
+    createContext: ({
+      req,
+      res,
+    }: {
+      req: FastifyRequest;
+      res: FastifyReply;
+    }) => {
       // Чистый, нативный Fastify! Плагин @fastify/cookie парсит куки строго сюда
       const token = req.cookies.token;
       let userId: string | null = null;
@@ -91,7 +97,7 @@ await fastify.register(fastifyTRPCPlugin, {
         userId,
         userRole,
         // 🚀 Нативное замыкание на метод setCookie от Fastify!
-        setAuthCookie: (newToken) => {
+        setAuthCookie: (newToken: string) => {
           if (newToken === '') {
             res.setCookie('token', '', {
               ...COOKIE_OPTIONS,
