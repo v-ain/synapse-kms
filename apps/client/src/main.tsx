@@ -2,9 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App.tsx';
-// import './index.css';
-import './styles/variables.css';
-import './styles/ranger.css';
+import './index.css';
+// import './styles/variables.css';
+// import './styles/ranger.css';
 import { trpc, trpcClient } from './utils/trpc.ts';
 
 // 🎯 Создаем единый экземпляр кэш-движка с промышленными дефолтами
