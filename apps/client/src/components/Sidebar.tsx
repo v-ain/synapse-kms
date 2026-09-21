@@ -36,16 +36,6 @@ export function Sidebar() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50/50 border-r border-slate-200 p-4 dark:bg-slate-900/50 dark:border-slate-800">
-      {/* Логотип / Заголовок */}
-      <div className="mb-6 px-2 flex items-center gap-2.5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-900 text-white dark:bg-slate-50 dark:text-slate-900 shrink-0">
-          <Brain className="h-4 w-4" />
-        </div>
-        <h3 className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-50">
-          Synapse KMS
-        </h3>
-      </div>
-
       {/* Системные фильтры */}
       <div className="space-y-1 mb-6">
         <Button
