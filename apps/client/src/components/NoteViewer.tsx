@@ -21,7 +21,7 @@ export function NoteViewer() {
     e.preventDefault();
     if (!newTagName.trim() || !activeNoteId) return;
     attachTagMutation.mutate(
-      { note_id: activeNoteId, tag_name: newTagName.trim() },
+      { noteId: activeNoteId, tagName: newTagName.trim() },
       {
         onSuccess: () => setNewTagName(''),
       }

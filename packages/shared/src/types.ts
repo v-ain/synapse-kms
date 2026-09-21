@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
-import { foldersTable, notesTable } from './db-schema.js';
+import { foldersTable, notesTable, tagsTable } from './db-schema.js';
 
 export type Note = InferSelectModel<typeof notesTable> & {
   preview?: string;
@@ -43,10 +43,30 @@ export const DeleteFolderSchema = z.object({
 export type CreateFolderInput = z.infer<typeof CreateFolderSchema>;
 export type DeleteFolderInput = z.infer<typeof DeleteFolderSchema>;
 
-export interface Tag {
-  id: string;
-  name: string;
-}
+// ==========================================
+// ДОМЕННЫЕ ТИПЫ (Авто-вывод из базы данных)
+// ==========================================
+
+export type Tag = InferSelectModel<typeof tagsTable>;
+
+// ==========================================
+// СХЕМЫ ВАЛИДАЦИИ И PAYLOADS (Zod)
+// ==========================================
+
+// Схема для валидации входных данных при привязке тега
+export const AttachTagSchema = z.object({
+  noteId: z.string().uuid({ message: 'Некорректный формат ID заметки' }),
+  tagName: z
+    .string()
+    .min(1, { message: 'Тег не может быть пустым' })
+    .max(30, { message: 'Тег слишком длинный (макс. 30 символов)' })
+    // Смарт-нормализация прямо на входе в систему!
+    .transform((val) => val.trim().toLowerCase()),
+});
+
+// Автоматически выводим тип Payload для аргументов сервиса из Zod-схемы!
+// Получится чистый тип: { noteId: string; tagName: string }
+export type AttachTagPayload = z.infer<typeof AttachTagSchema>;
 
 export interface PaginatedResponse<T> {
   items: T[];

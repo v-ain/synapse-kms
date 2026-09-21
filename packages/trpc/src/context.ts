@@ -1,4 +1,5 @@
 import type {
+  AttachTagPayload,
   BulkMovePayload,
   CreateNotePayload,
   Folder,
@@ -6,6 +7,7 @@ import type {
   Note,
   NotePreview,
   PaginatedResponse,
+  Tag,
   UpdateNotePayload,
 } from '@synapse-kms/shared';
 
@@ -84,7 +86,10 @@ export interface IAuthService {
 }
 
 export interface ITagService {
-  attachTag(noteId: string, tagName: string, userId: string): Promise<any>;
+  attachTag(
+    payload: AttachTagPayload,
+    userId: string
+  ): Promise<{ success: true; tag: Tag }>;
   getUserTags(userId: string): Promise<any>;
 }
 
