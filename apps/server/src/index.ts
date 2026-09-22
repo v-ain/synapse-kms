@@ -1,6 +1,6 @@
-import Fastify from 'fastify';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
+import { config } from './config.js';
+import { db } from './db.js';
 import { ZodError } from 'zod';
 import { FolderService } from './services/folder.service.js';
 import { NoteService } from './services/note.service.js';
@@ -12,13 +12,6 @@ import { TagService } from './services/tag.service.js';
 import { AdminService } from './services/admin.service.js';
 
 const fastify = Fastify({ logger: true });
-
-const queryConnection = postgres(
-  'postgres://myuser:mypassword@localhost:5432/mydb'
-);
-
-// Создаем типизированный клиент СУБД
-const db = drizzle(queryConnection);
 
 // Расширяем типы Fastify, чтобы TypeScript знал про наше новое поле в request
 declare module 'fastify' {
@@ -74,7 +67,13 @@ await fastify.register(fastifyTRPCPlugin, {
   useWss: false,
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req, res }) => {
+    createContext: ({
+      req,
+      res,
+    }: {
+      req: FastifyRequest;
+      res: FastifyReply;
+    }) => {
       // Чистый, нативный Fastify! Плагин @fastify/cookie парсит куки строго сюда
       const token = req.cookies.token;
       let userId: string | null = null;
@@ -98,7 +97,7 @@ await fastify.register(fastifyTRPCPlugin, {
         userId,
         userRole,
         // 🚀 Нативное замыкание на метод setCookie от Fastify!
-        setAuthCookie: (newToken) => {
+        setAuthCookie: (newToken: string) => {
           if (newToken === '') {
             res.setCookie('token', '', {
               ...COOKIE_OPTIONS,
@@ -120,16 +119,13 @@ await fastify.register(fastifyTRPCPlugin, {
 
 const start = async () => {
   try {
-    await fastify.listen({ port: 3000, host: '0.0.0.0' });
-    console.log('🚀 Бронебойный сервер Synapse KMS запущен на порту 3000!');
+    await fastify.listen({ port: config.serverPort, host: '0.0.0.0' });
+    console.log(
+      'Сервер Synapse KMS успешно запущен на порту : ' + config.serverPort
+    );
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
   }
 };
 start();
-
-export type { NoteService } from './services/note.service.js';
-export type { FolderService } from './services/folder.service.js';
-export type { AuthService } from './services/auth.service.js';
-export type { TagService } from './services/tag.service.js';

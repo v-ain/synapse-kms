@@ -1,16 +1,84 @@
+import type {
+  AttachTagPayload,
+  BulkMovePayload,
+  CreateNotePayload,
+  Folder,
+  GetNotesQueryParams,
+  Note,
+  NotePreview,
+  PaginatedResponse,
+  Tag,
+  UpdateNotePayload,
+} from '@synapse-kms/shared';
+
 export interface INoteService {
-  getNotes(query: any, userId: string): Promise<any>;
-  getNoteById(id: string, userId: string): Promise<any>;
-  createNote(payload: any, userId: string): Promise<any>;
-  updateNote(payload: any, userId: string): Promise<any>;
-  archiveNote(id: string, userId: string): Promise<any>;
-  bulkMove(payload: any, userId: string): Promise<any>;
+  /**
+   * Получение пагинированного списка превью заметок (даты: string)
+   */
+  getNotes(
+    query: GetNotesQueryParams,
+    userId: string
+  ): Promise<PaginatedResponse<NotePreview>>;
+
+  /**
+   * Получение полной заметки по ID (даты: string)
+   */
+  getNoteById(id: string, userId: string): Promise<Note | null>;
+
+  /**
+   * Создание новой заметки (даты: string)
+   */
+  createNote(payload: CreateNotePayload, userId: string): Promise<Note>;
+
+  /**
+   * Обновление данных заметки с проверкой версии (Optimistic Lock)
+   */
+  updateNote(
+    payload: UpdateNotePayload,
+    userId: string
+  ): Promise<{ conflict: true; note: null } | { conflict: false; note: Note }>;
+
+  /**
+   * Архивация заметки
+   */
+  archiveNote(
+    id: string,
+    userId: string
+  ): Promise<
+    | { error: string; status: number; success?: never }
+    | { error: null; success: true; status?: never }
+  >;
+
+  /**
+   * Массовое перемещение заметок с флагом оптимистичной блокировки
+   */
+  bulkMove(
+    payload: BulkMovePayload,
+    userId: string
+  ): Promise<{ success: boolean; conflict?: boolean }>;
 }
 
 export interface IFolderService {
-  getFolders(userId: string): Promise<any>;
-  createFolder(title: string, userId: string): Promise<any>;
-  deleteFolder(id: string, userId: string): Promise<any>;
+  /**
+   * Получение списка всех активных (не удаленных) папок пользователя
+   */
+  getFolders(userId: string): Promise<Folder[]>;
+
+  /**
+   * Создание новой папки
+   */
+  createFolder(title: string, userId: string): Promise<Folder>;
+
+  /**
+   * Безопасное удаление папки (Soft delete)
+   */
+  deleteFolder(
+    id: string,
+    userId: string
+  ): Promise<
+    | { error: string; status: number; success?: never }
+    | { error: null; success: true; status?: never }
+  >;
 }
 
 export interface IAuthService {
@@ -18,7 +86,10 @@ export interface IAuthService {
 }
 
 export interface ITagService {
-  attachTag(noteId: string, tagName: string, userId: string): Promise<any>;
+  attachTag(
+    payload: AttachTagPayload,
+    userId: string
+  ): Promise<{ success: true; tag: Tag }>;
   getUserTags(userId: string): Promise<any>;
 }
 

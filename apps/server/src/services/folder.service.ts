@@ -1,27 +1,13 @@
 import { eq, and, sql as drizzleSql } from 'drizzle-orm';
-import {
-  foldersTable,
-  notesTable,
-  notesTagsTable,
-  tagsTable,
-  usersTable,
-} from '@synapse-kms/shared';
+import { foldersTable, notesTable } from '@synapse-kms/shared';
 import type { Folder } from '@synapse-kms/shared';
-import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
+import { DrizzleDB } from 'src/db.js';
+import { IFolderService } from '@synapse-kms/trpc';
 
-const dbSchema = {
-  usersTable,
-  foldersTable,
-  notesTable,
-  tagsTable,
-  notesTagsTable,
-};
+export class FolderService implements IFolderService {
+  constructor(private db: DrizzleDB) {}
 
-export class FolderService {
-  // 🧬 Внедряем типизированный инстанс 'db' вместо сырого 'sql'
-  constructor(private db: PostgresJsDatabase<typeof dbSchema>) {}
-
-  // 📁 1. Получить только ЖИВЫЕ папки текущего юзера
+  // Получить только ЖИВЫЕ папки текущего юзера
   async getFolders(userId: string): Promise<Folder[]> {
     return this.db
       .select()
@@ -35,7 +21,7 @@ export class FolderService {
       .orderBy(drizzleSql`${foldersTable.created_at} DESC`); // Используем легкую вставку для сортировки
   }
 
-  // 🏗️ 2. Создать новую папку
+  // Создать новую папку
   async createFolder(title: string, userId: string): Promise<Folder> {
     const [folder] = await this.db
       .insert(foldersTable)
@@ -48,9 +34,35 @@ export class FolderService {
     return folder;
   }
 
-  // 🗑️ 3. Мягкое удаление папки (Enterprise транзакция на чистом TS!)
-  async deleteFolder(id: string, userId: string): Promise<void> {
-    // Открываем ACID-транзакцию через Drizzle
+  // Мягкое удаление папки (Enterprise транзакция с проверкой существования)
+  async deleteFolder(
+    id: string,
+    userId: string
+  ): Promise<
+    | { error: string; status: number; success?: never }
+    | { error: null; success: true; status?: never }
+  > {
+    // 1. Проверяем, существует ли живая папка у этого пользователя
+    const [existingFolder] = await this.db
+      .select()
+      .from(foldersTable)
+      .where(
+        and(
+          eq(foldersTable.id, id),
+          eq(foldersTable.user_id, userId),
+          eq(foldersTable.is_deleted, false)
+        )
+      )
+      .limit(1);
+
+    if (!existingFolder) {
+      return {
+        error: 'Папка не найдена или уже была удалена',
+        status: 404,
+      };
+    }
+
+    // 2. Если папка на месте, запускаем ACID-транзакцию через Drizzle
     await this.db.transaction(async (tx) => {
       // А. Маркируем папку как удаленную
       await tx
@@ -63,8 +75,9 @@ export class FolderService {
         .update(notesTable)
         .set({
           folder_id: null,
-          // С помощью drizzle-импорта инкрементируем версию и обновляем таймстемп
           version: drizzleSql`${notesTable.version} + 1`,
+          // Внимание: так как в заметках включен mode: 'string',
+          // CURRENT_TIMESTAMP в Postgres запишется идеально, и Drizzle вернет строку!
           updated_at: drizzleSql`CURRENT_TIMESTAMP`,
         })
         .where(
@@ -75,5 +88,7 @@ export class FolderService {
           )
         );
     });
+
+    return { error: null, success: true };
   }
 }

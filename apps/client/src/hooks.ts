@@ -148,7 +148,7 @@ export function useAttachTag() {
 
       // Обновляем контент текущей открытой заметки
       if (variables) {
-        utils.notes.getById.invalidate({ id: variables.note_id });
+        utils.notes.getById.invalidate({ id: variables.noteId });
       }
     },
     onError: (err) => {

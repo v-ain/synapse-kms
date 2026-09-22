@@ -1,6 +1,7 @@
 {
   "name": "@synapse-kms/shared",
   "version": "1.0.0",
+  "author": "v-ain",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

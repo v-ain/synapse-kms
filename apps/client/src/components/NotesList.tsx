@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
 import { useUIStore } from '../store';
-import {
-  useNotes,
-  useFolders,
-  useCreateNote,
-  useBulkMoveNotes,
-} from '../hooks';
+import { useNotes, useFolders } from '../hooks';
 import { SearchBar } from './SearchBar';
+import { NoteCard } from './NoteCard';
+import { CreateNoteForm } from './CreateNoteForm';
+import { BulkActionsPanel } from './BulkActionsPanel';
+import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { FileText, FolderOpen, Inbox, Layers, Loader2 } from 'lucide-react';
 
 export function NotesList() {
   const {
@@ -15,10 +15,7 @@ export function NotesList() {
     activeNoteId,
     setActiveNote,
     selectedNoteIds,
-    targetFolderId,
     toggleSelectNote,
-    clearSelection,
-    setTargetFolder,
   } = useUIStore();
 
   const {
@@ -28,192 +25,107 @@ export function NotesList() {
     hasNextPage,
     isFetchingNextPage,
   } = useNotes();
+
   const notes = data?.pages.flatMap((page) => page.items) || [];
   const { data: folders } = useFolders();
-  const createNoteMutation = useCreateNote();
-  const bulkMoveMutation = useBulkMoveNotes();
 
-  const [newNoteTitle, setNewNoteTitle] = useState('');
-  const [newNoteContent, setNewNoteContent] = useState('');
-
-  const handleBulkMove = () => {
-    if (selectedNoteIds.length === 0) return;
-    const itemsToSend =
-      notes
-        ?.filter((n) => selectedNoteIds.includes(n.id))
-        .map((n) => ({ id: n.id, version: n.version })) || [];
-    const folderId = targetFolderId === 'inbox' ? null : targetFolderId;
-    bulkMoveMutation.mutate(
-      { items: itemsToSend, target_folder_id: folderId },
-      { onSuccess: () => clearSelection() }
-    );
-  };
-
-  const handleCreateNote = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newNoteTitle.trim()) return;
-    const folderId = activeFilter === 'folder' ? activeFolderId : null;
-    createNoteMutation.mutate(
-      { title: newNoteTitle, content: newNoteContent, folder_id: folderId },
-      {
-        onSuccess: () => {
-          setNewNoteTitle('');
-          setNewNoteContent('');
-        },
-      }
-    );
-  };
+  // Собираем ID всех текущих видимых на экране заметок для фичи "Выбрать все"
+  const currentNotesIds = notes.map((n) => n.id);
 
   return (
-    <div className="notes-panel">
-      <SearchBar />
-      <h4>
-        {activeFilter === 'all' && 'Все активные заметки'}
-        {activeFilter === 'inbox' && 'Входящие документы'}
-        {activeFilter === 'folder' &&
-          `Папка: ${folders?.find((f) => f.id === activeFolderId)?.title}`}
-      </h4>
+    <div className="flex flex-col h-full min-h-0 bg-white dark:bg-slate-950 p-4 relative overflow-hidden">
+      {/* Шапка списка: Поиск и динамический статус-заголовок */}
+      <div className="space-y-3 mb-3 shrink-0">
+        <SearchBar />
 
-      {selectedNoteIds.length > 0 && (
-        <div className="bulk-panel">
-          <span style={{ fontSize: '12px', fontWeight: 'bold' }}>
-            Выбрано: {selectedNoteIds.length} шт.
-          </span>
-          <div style={{ display: 'flex', gap: '5px', marginTop: '5px' }}>
-            <select
-              value={targetFolderId}
-              onChange={(e) => setTargetFolder(e.target.value)}
-              style={{ flex: 1, padding: '2px' }}
-            >
-              <option value="inbox">📥 Входящие</option>
-              {folders?.map((f) => (
-                <option key={f.id} value={f.id}>
-                  📁 {f.title}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={handleBulkMove}
-              style={{
-                padding: '2px 10px',
-                background: '#007bff',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '3px',
-                cursor: 'pointer',
-              }}
-            >
-              ОК
-            </button>
-          </div>
+        <div className="flex items-center gap-2 px-1 text-slate-500 dark:text-slate-400">
+          {activeFilter === 'all' && (
+            <>
+              <Layers className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
+              <h4 className="text-xs font-semibold uppercase tracking-wider">
+                База знаний
+              </h4>
+            </>
+          )}
+
+          {activeFilter === 'inbox' && (
+            <>
+              <Inbox className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
+              <h4 className="text-xs font-semibold uppercase tracking-wider">
+                Входящие потоки
+              </h4>
+            </>
+          )}
+
+          {activeFilter === 'folder' && (
+            <>
+              <FolderOpen className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
+              <h4 className="text-xs font-semibold uppercase tracking-wider truncate">
+                Папка:{' '}
+                <span className="text-slate-800 dark:text-slate-200 font-bold">
+                  {folders?.find((f) => f.id === activeFolderId)?.title ||
+                    '...'}
+                </span>
+              </h4>
+            </>
+          )}
         </div>
-      )}
-
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-          marginBottom: '15px',
-        }}
-      >
-        {notesLoading ? (
-          <p>Синхронизация...</p>
-        ) : notes?.length === 0 ? (
-          <p style={{ color: '#888' }}>Тут пока пусто</p>
-        ) : (
-          notes?.map((note) => (
-            <div
-              key={note.id}
-              onClick={() => setActiveNote(note.id)}
-              className={`note-card ${activeNoteId === note.id ? 'active' : ''}`}
-            >
-              <input
-                type="checkbox"
-                checked={selectedNoteIds.includes(note.id)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleSelectNote(note.id);
-                }}
-                onChange={() => {}}
-                style={{ marginTop: '4px', cursor: 'pointer' }}
-              />
-              <div style={{ flex: 1 }}>
-                <div
-                  style={{
-                    fontWeight: 'bold',
-                    marginBottom: '5px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <span>{note.title}</span>
-                  <span className="version-badge">v{note.version}</span>
-                </div>
-                <div
-                  style={{
-                    fontSize: '12px',
-                    color: '#666',
-                    marginBottom: '5px',
-                  }}
-                >
-                  {note.preview}...
-                </div>
-                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                  {note.tags?.map((tag) => (
-                    <span key={tag} className="tag-badge">
-                      #{tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-        {hasNextPage && (
-          <button
-            onClick={() => fetchNextPage()}
-            disabled={isFetchingNextPage}
-            className="btn-submit"
-            style={{
-              background: '#e5e7eb',
-              color: '#111',
-              marginBottom: '10px',
-            }}
-          >
-            {isFetchingNextPage
-              ? '🚀 Синхронизация данных...'
-              : '⬇️ Загрузить ещё задачи'}
-          </button>
-        )}
       </div>
 
-      <form onSubmit={handleCreateNote} className="form-container">
-        <h5>
-          Новая заметка{' '}
-          {activeFilter === 'folder' ? '(в текущую папку)' : '(во Входящие)'}
-        </h5>
-        <input
-          type="text"
-          placeholder="Заголовок..."
-          value={newNoteTitle}
-          onChange={(e) => setNewNoteTitle(e.target.value)}
-          className="input-field"
-        />
-        <textarea
-          placeholder="Контент заметки..."
-          value={newNoteContent}
-          onChange={(e) => setNewNoteContent(e.target.value)}
-          rows={2}
-          className="input-field"
-          style={{ resize: 'none' }}
-        />
-        <button type="submit" className="btn-submit">
-          + Добавить заметку
-        </button>
-      </form>
+      {/* ДЕКОМПОЗИРОВАННАЯ ПАНЕЛЬ МАССОВЫХ ДЕЙСТВИЙ */}
+      {/* Теперь она встроена в поток, красиво сдвигает список вниз и не перекрывает первую карточку! */}
+      <BulkActionsPanel currentNotesIds={currentNotesIds} />
+
+      {/* Скролл-зона ленты заметок */}
+      <div className="flex-1 overflow-y-auto min-h-0 -mx-2 px-2">
+        <div className="space-y-2 pb-4">
+          {notesLoading ? (
+            <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <p className="text-xs">Синхронизация базы знаний...</p>
+            </div>
+          ) : notes.length === 0 ? (
+            <div className="text-center py-12 text-slate-400 dark:text-slate-600">
+              <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">Тут пока пусто</p>
+            </div>
+          ) : (
+            notes.map((note) => (
+              <NoteCard
+                key={note.id}
+                note={note}
+                isActive={activeNoteId === note.id}
+                isSelected={selectedNoteIds.includes(note.id)}
+                onSelectClick={() => toggleSelectNote(note.id)}
+                onCardClick={() => setActiveNote(note.id)}
+              />
+            ))
+          )}
+
+          {hasNextPage && (
+            <Button
+              variant="secondary"
+              className="w-full text-xs h-9 mt-2"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+            >
+              {isFetchingNextPage ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />{' '}
+                  Загрузка...
+                </>
+              ) : (
+                'Загрузить ещё'
+              )}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <Separator className="my-2 shrink-0" />
+
+      {/* Форма создания заметки */}
+      <CreateNoteForm />
     </div>
   );
 }

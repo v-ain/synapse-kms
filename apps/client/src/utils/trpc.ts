@@ -8,7 +8,7 @@ export const trpc = createTRPCReact<AppRouter>();
 export const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: 'http://localhost:3000/trpc', // URL твоего Fastify сервера
+      url: '/trpc',
 
       // 🪄 КРИТИЧЕСКИ ВАЖНО ДЛЯ КУК: заставляет браузер отправлять HttpOnly куки с каждым запросом tRPC!
       async headers() {

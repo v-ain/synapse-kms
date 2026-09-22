@@ -1,6 +1,7 @@
 {
   "name": "@synapse-kms/trpc",
   "version": "1.0.0",
+  "author": "v-ain",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -8,7 +9,10 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "development": "./src/index.ts",
+      "import": {
+        "development": "./src/index.ts",
+        "default": "./dist/index.js"
+      },
       "default": "./dist/index.js"
     }
   },
