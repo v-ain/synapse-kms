@@ -1,4 +1,3 @@
-// apps/client/src/components/NoteViewer.tsx
 import React, { useState } from 'react';
 import { useUIStore } from '../store';
 import { useNotes, useNote, useArchiveNote, useAttachTag } from '../hooks';
@@ -8,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Archive, Brain, Loader2, Plus, Tag as TagIcon } from 'lucide-react';
+import { InlineTitleEditor } from './InlineTitleEditor';
 
 export function NoteViewer() {
   const { activeNoteId } = useUIStore();
@@ -52,12 +52,16 @@ export function NoteViewer() {
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-950 p-6">
-      {/* 🔝 ВЕРХНЯЯ ПАНЕЛЬ: Заголовок, версия и кнопка Архива */}
+      {/* ВЕРХНЯЯ ПАНЕЛЬ: Заголовок, версия и кнопка Архива */}
       <div className="space-y-1 mb-4 shrink-0">
         <div className="flex items-start justify-between gap-4">
-          <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50 line-clamp-2">
-            {activeNote?.title || 'Без названия'}
-          </h2>
+          {/* Подключаем атомарный инлайн-редактор */}
+          <InlineTitleEditor
+            noteId={activeNoteId}
+            currentTitle={activeNote?.title || 'Без названия'}
+            currentContent={fullNote?.content || ''}
+            currentVersion={activeNote?.version || 1}
+          />
           <Button
             variant="destructive"
             size="sm"

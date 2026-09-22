@@ -6,7 +6,7 @@ import { CreateNoteForm } from './CreateNoteForm';
 import { BulkActionsPanel } from './BulkActionsPanel';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { FileText, Loader2 } from 'lucide-react';
+import { FileText, FolderOpen, Inbox, Layers, Loader2 } from 'lucide-react';
 
 export function NotesList() {
   const {
@@ -34,15 +34,42 @@ export function NotesList() {
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-white dark:bg-slate-950 p-4 relative overflow-hidden">
-      {/* Шапка списка */}
+      {/* Шапка списка: Поиск и динамический статус-заголовок */}
       <div className="space-y-3 mb-3 shrink-0">
         <SearchBar />
-        <h4 className="text-sm font-semibold text-slate-500 dark:text-slate-400 px-1">
-          {activeFilter === 'all' && '🌐 Все активные заметки'}
-          {activeFilter === 'inbox' && '📥 Входящие документы'}
-          {activeFilter === 'folder' &&
-            `📁 Папка: ${folders?.find((f) => f.id === activeFolderId)?.title || '...'}`}
-        </h4>
+
+        <div className="flex items-center gap-2 px-1 text-slate-500 dark:text-slate-400">
+          {activeFilter === 'all' && (
+            <>
+              <Layers className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
+              <h4 className="text-xs font-semibold uppercase tracking-wider">
+                База знаний
+              </h4>
+            </>
+          )}
+
+          {activeFilter === 'inbox' && (
+            <>
+              <Inbox className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
+              <h4 className="text-xs font-semibold uppercase tracking-wider">
+                Входящие потоки
+              </h4>
+            </>
+          )}
+
+          {activeFilter === 'folder' && (
+            <>
+              <FolderOpen className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
+              <h4 className="text-xs font-semibold uppercase tracking-wider truncate">
+                Папка:{' '}
+                <span className="text-slate-800 dark:text-slate-200 font-bold">
+                  {folders?.find((f) => f.id === activeFolderId)?.title ||
+                    '...'}
+                </span>
+              </h4>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ДЕКОМПОЗИРОВАННАЯ ПАНЕЛЬ МАССОВЫХ ДЕЙСТВИЙ */}
