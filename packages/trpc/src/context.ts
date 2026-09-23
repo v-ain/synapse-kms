@@ -90,7 +90,7 @@ export interface ITagService {
     payload: AttachTagPayload,
     userId: string
   ): Promise<{ success: true; tag: Tag }>;
-  getUserTags(userId: string): Promise<any>;
+  getUserTags(userId: string): Promise<Tag[]>;
 }
 
 export interface IAdminService {

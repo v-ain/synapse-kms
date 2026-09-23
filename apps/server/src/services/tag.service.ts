@@ -3,10 +3,13 @@ import {
   notesTagsTable,
   Tag,
   AttachTagPayload,
+  notesTable,
 } from '@synapse-kms/shared';
 import { DrizzleDB } from 'src/db.js';
+import { eq, count } from 'drizzle-orm';
+import { ITagService } from '@synapse-kms/trpc';
 
-export class TagService {
+export class TagService implements ITagService {
   constructor(private db: DrizzleDB) {}
 
   // смарт-метод привязки тега
@@ -39,12 +42,32 @@ export class TagService {
     return { success: true, tag };
   }
 
-  // 🔥 Метод получения всех уникальных тегов пользователя (для бокового меню)
-  // Соединяем заметки пользователя с тегами через мост
-  async getUserTags(userId: string) {
-    // Здесь будет SQL-запрос с JOIN, который выберет все теги,
-    // привязанные к заметкам текущего пользователя (userId)
-    // Пока оставим заглушку, чтобы запустить базовую привязку
-    return [];
+  // 🔥 Метод получения всех уникальных тегов пользователя со счётчиком заметок
+  async getUserTags(
+    userId: string
+  ): Promise<Array<{ id: string; name: string; notes_count: number }>> {
+    const result = await this.db
+      .select({
+        id: tagsTable.id,
+        name: tagsTable.name,
+        // Считаем количество связей тега с заметками этого пользователя
+        notes_count: count(notesTagsTable.note_id),
+      })
+      .from(tagsTable)
+      // Соединяем теги с мостом связей many-to-many
+      .innerJoin(notesTagsTable, eq(tagsTable.id, notesTagsTable.tag_id))
+      // Соединяем мост с самой таблицей заметок
+      .innerJoin(notesTable, eq(notesTagsTable.note_id, notesTable.id))
+      // Отсекаем чужие заметки, оставляем только синапсы текущего юзера
+      .where(eq(notesTable.user_id, userId))
+      // Группируем по ID и имени тега, чтобы агрегация count() отработала корректно
+      .groupBy(tagsTable.id, tagsTable.name);
+
+    // Drizzle возвращает notes_count как строку (из-за специфики драйверов pg/node-postgres),
+    // приводим её к нормальному числу перед отправкой на фронтенд
+    return result.map((item) => ({
+      ...item,
+      notes_count: Number(item.notes_count),
+    }));
   }
 }

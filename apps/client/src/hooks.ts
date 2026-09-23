@@ -178,3 +178,7 @@ export function useUpdateNote() {
     },
   });
 }
+
+export function useTags() {
+  return trpc.tags.list.useQuery();
+}
