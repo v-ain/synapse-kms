@@ -111,7 +111,13 @@ export type CreateNotePayload = z.infer<typeof CreateNoteSchema>;
 export type BulkMovePayload = z.infer<typeof BulkMoveSchema>;
 
 // Описываем допустимые значения для фильтра
-export const notesFilterSchema = z.enum(['all', 'inbox', 'archive', 'folder']);
+export const notesFilterSchema = z.enum([
+  'all',
+  'inbox',
+  'archive',
+  'folder',
+  'tag',
+]);
 export type NotesFilter = z.infer<typeof notesFilterSchema>;
 
 // 🛡️ Живая Zod-схема для валидации параметров запроса
@@ -121,6 +127,7 @@ export const getNotesQueryParamsSchema = z.object({
   limit: z.string().optional(),
   cursor: z.string().optional(),
   search: z.string().optional(),
+  tagName: z.string().optional(),
   // cursor: z.string().nullish(), // Обязательно nullish или optional!
 });
 

@@ -1,19 +1,14 @@
 import { useUIStore } from '../store';
-import { useTags } from '../hooks'; // 👈 Подключаем наш свежий хук
+import { useTags } from '../hooks';
 import { Tag as TagIcon, Loader2 } from 'lucide-react';
 
 export function TagCloud() {
-  // Допускаем, что в твоем zustand-сторе фильтр переключается по аналогии с папками
-  const { activeFilter, activeTagName, setFilter, setActiveTag } = useUIStore();
+  const { activeFilter, activeTagName, setActiveTag } = useUIStore();
 
-  // Достаем живые данные, статус загрузки из tRPC кэша React Query
   const { data: tags, isLoading } = useTags();
 
   const handleTagClick = (tagName: string) => {
-    if (typeof setFilter === 'function' && typeof setActiveTag === 'function') {
-      setActiveTag(tagName);
-      setFilter('tag'); // Переключаем глобальный UI-фильтр в режим отображения тега
-    }
+    setActiveTag(tagName);
   };
 
   return (

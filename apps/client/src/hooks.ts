@@ -7,18 +7,25 @@ export function useFolders() {
 }
 
 export function useNotes() {
-  const { activeFilter, activeFolderId, searchQuery } = useUIStore();
+  const { activeFilter, activeFolderId, activeTagName, searchQuery } =
+    useUIStore();
+
+  // Формируем query-параметры строго по getNotesQueryParamsSchema контракту бэкенда
+  const folder_id =
+    activeFilter === 'folder' ? (activeFolderId ?? undefined) : undefined;
+  const tagName =
+    activeFilter === 'tag' ? (activeTagName ?? undefined) : undefined;
 
   return trpc.notes.getNotes.useInfiniteQuery(
     {
-      filter: activeFilter,
-      folder_id: activeFolderId || undefined,
-      limit: '20',
-      search: searchQuery || undefined, // 🔍 Передаем поиск в tRPC!
+      filter: activeFilter, // отправляем 'all' | 'inbox' | 'folder' | 'tag'
+      folder_id,
+      tagName,
+      search: searchQuery,
+      limit: '20', // tRPC ждет string по схеме бэкенда
     },
     {
-      initialCursor: undefined,
-      getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
+      getNextPageParam: (lastPage: any) => lastPage.next_cursor,
     }
   );
 }
@@ -145,7 +152,7 @@ export function useAttachTag() {
     onSuccess: (_data, variables) => {
       // Обновляем ленту заметок (чтобы тег появился на превью)
       utils.notes.getNotes.invalidate();
-
+      utils.tags.list.invalidate();
       // Обновляем контент текущей открытой заметки
       if (variables) {
         utils.notes.getById.invalidate({ id: variables.noteId });

@@ -1,4 +1,4 @@
-import { eq, and, sql, desc, lt, ilike, or } from 'drizzle-orm';
+import { eq, and, sql, desc, lt, ilike, or, exists } from 'drizzle-orm';
 import {
   notesTable,
   foldersTable,
@@ -45,6 +45,25 @@ export class NoteService implements INoteService {
       conditions.push(sql`${notesTable.folder_id} IS NULL`);
     } else if (filter === 'folder' && folder_id) {
       conditions.push(eq(notesTable.folder_id, folder_id));
+    }
+
+    // Фильтрация по тегу без разрушения json_agg
+    if (filter === 'tag' && query.tagName) {
+      conditions.push(
+        // Проверяем существование связи Many-to-Many на уровне СУБД через EXISTS подзапрос
+        exists(
+          this.db
+            .select()
+            .from(notesTagsTable)
+            .innerJoin(tagsTable, eq(notesTagsTable.tag_id, tagsTable.id))
+            .where(
+              and(
+                eq(notesTagsTable.note_id, notesTable.id), // связываем подзапрос с текущей строкой заметки
+                eq(tagsTable.name, query.tagName) // ищем точное совпадение имени хэштега
+              )
+            )
+        )
+      );
     }
 
     // Магия Курсора: если передан, берем записи строго старше таймстемпа курсора
