@@ -13,12 +13,9 @@ export class FolderService implements IFolderService {
       .select()
       .from(foldersTable)
       .where(
-        and(
-          eq(foldersTable.is_deleted, false),
-          eq(foldersTable.user_id, userId)
-        )
+        and(eq(foldersTable.isDeleted, false), eq(foldersTable.userId, userId))
       )
-      .orderBy(drizzleSql`${foldersTable.created_at} DESC`); // Используем легкую вставку для сортировки
+      .orderBy(drizzleSql`${foldersTable.createdAt} DESC`);
   }
 
   // Создать новую папку
@@ -27,7 +24,7 @@ export class FolderService implements IFolderService {
       .insert(foldersTable)
       .values({
         title: title.trim(),
-        user_id: userId,
+        userId: userId,
       })
       .returning();
 
@@ -49,8 +46,8 @@ export class FolderService implements IFolderService {
       .where(
         and(
           eq(foldersTable.id, id),
-          eq(foldersTable.user_id, userId),
-          eq(foldersTable.is_deleted, false)
+          eq(foldersTable.userId, userId),
+          eq(foldersTable.isDeleted, false)
         )
       )
       .limit(1);
@@ -67,24 +64,24 @@ export class FolderService implements IFolderService {
       // А. Маркируем папку как удаленную
       await tx
         .update(foldersTable)
-        .set({ is_deleted: true })
-        .where(and(eq(foldersTable.id, id), eq(foldersTable.user_id, userId)));
+        .set({ isDeleted: true })
+        .where(and(eq(foldersTable.id, id), eq(foldersTable.userId, userId)));
 
       // Б. Выбрасываем живые заметки из этой папки во Входящие (NULL)
       await tx
         .update(notesTable)
         .set({
-          folder_id: null,
+          folderId: null,
           version: drizzleSql`${notesTable.version} + 1`,
           // Внимание: так как в заметках включен mode: 'string',
           // CURRENT_TIMESTAMP в Postgres запишется идеально, и Drizzle вернет строку!
-          updated_at: drizzleSql`CURRENT_TIMESTAMP`,
+          updatedAt: drizzleSql`CURRENT_TIMESTAMP`,
         })
         .where(
           and(
-            eq(notesTable.folder_id, id),
-            eq(notesTable.user_id, userId),
-            eq(notesTable.is_deleted, false)
+            eq(notesTable.folderId, id),
+            eq(notesTable.userId, userId),
+            eq(notesTable.isDeleted, false)
           )
         );
     });

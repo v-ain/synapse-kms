@@ -53,7 +53,7 @@ export function TagCloud() {
                 <span
                   className={`text-[9px] font-mono ${isActive ? 'text-white/70 dark:text-slate-900/60' : 'text-slate-400'}`}
                 >
-                  ({tag.notes_count})
+                  ({tag.notesCount})
                 </span>
               </button>
             );

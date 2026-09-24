@@ -20,7 +20,7 @@ export function CreateNoteForm() {
     const folderId = activeFilter === 'folder' ? activeFolderId : null;
 
     createNoteMutation.mutate(
-      { title: newNoteTitle, content: newNoteContent, folder_id: folderId },
+      { title: newNoteTitle, content: newNoteContent, folderId: folderId },
       {
         onSuccess: () => {
           setNewNoteTitle('');

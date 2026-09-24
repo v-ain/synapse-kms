@@ -10,7 +10,7 @@ export type Note = InferSelectModel<typeof notesTable> & {
 // Превью тоже автоматически использует string для дат
 export type NotePreview = Omit<
   Note,
-  'content' | 'is_deleted' | 'user_id' | 'preview' | 'tags'
+  'content' | 'isDeleted' | 'userId' | 'preview' | 'tags'
 > & {
   preview: string;
   tags: string[];
@@ -51,7 +51,7 @@ export type Tag = InferSelectModel<typeof tagsTable>;
 
 // Создаем расширенный UI/DTO тип: берем все поля Tag и подмешиваем notes_count
 export interface TagWithCount extends Tag {
-  notes_count: number;
+  notesCount: number;
 }
 
 // ==========================================
@@ -75,8 +75,8 @@ export type AttachTagPayload = z.infer<typeof AttachTagSchema>;
 
 export interface PaginatedResponse<T> {
   items: T[];
-  next_cursor: string | null; // Передаем таймстемп последней заметки в формате ISO строки
-  has_more: boolean;
+  nextCursor: string | null; // Передаем таймстемп последней заметки в формате ISO строки
+  hasMore: boolean;
 }
 
 // СХЕМЫ ВАЛИДАЦИИ ZOD (Enterprise-слой)
@@ -85,11 +85,11 @@ export interface PaginatedResponse<T> {
 export const CreateNoteSchema = z.object({
   title: z
     .string()
-    .min(1)
+    .min(1, 'Заголовок не может быть пустым')
     .max(100)
     .transform((val) => val.trim()),
   content: z.string().default(''),
-  folder_id: z.string().uuid().nullable(),
+  folderId: z.string().uuid().nullable(),
 });
 
 // Пример правильной Zod-схемы для апдейта заметки
@@ -108,7 +108,7 @@ export const BulkMoveSchema = z.object({
   items: z
     .array(z.object({ id: z.string().uuid(), version: z.number().int() }))
     .min(1),
-  target_folder_id: z.string().uuid().nullable(),
+  targetFolderId: z.string().uuid().nullable(),
 });
 
 // TS-типы строятся по схемам валидации!
@@ -127,7 +127,7 @@ export type NotesFilter = z.infer<typeof notesFilterSchema>;
 
 // 🛡️ Живая Zod-схема для валидации параметров запроса
 export const getNotesQueryParamsSchema = z.object({
-  folder_id: z.string().uuid().optional(),
+  folderId: z.string().uuid().optional(),
   filter: notesFilterSchema.optional(),
   limit: z.string().optional(),
   cursor: z.string().optional(),

@@ -65,7 +65,7 @@ export function Sidebar() {
                       <Folder className="h-4 w-4 shrink-0 text-slate-400" />
                       <span className="truncate">{folder.title}</span>
                       <span className="text-xs text-slate-400 ml-auto shrink-0 font-mono">
-                        ({folder.notes_count})
+                        ({folder.notesCount})
                       </span>
                     </Button>
 

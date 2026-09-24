@@ -67,7 +67,7 @@ export function BulkActionsPanel({ currentNotesIds }: BulkActionsPanelProps) {
     const folderId = targetFolderId === 'inbox' ? null : targetFolderId;
 
     bulkMoveMutation.mutate(
-      { items: itemsToSend, target_folder_id: folderId },
+      { items: itemsToSend, targetFolderId: folderId },
       { onSuccess: () => clearSelection() }
     );
   };

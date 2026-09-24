@@ -35,8 +35,8 @@ export class TagService implements ITagService {
     await this.db
       .insert(notesTagsTable)
       .values({
-        note_id: noteId,
-        tag_id: tag.id,
+        noteId: noteId,
+        tagId: tag.id,
       })
       .onConflictDoNothing();
 
@@ -49,17 +49,17 @@ export class TagService implements ITagService {
       .select({
         id: tagsTable.id,
         name: tagsTable.name,
-        notes_count: count(notesTagsTable.note_id),
+        notesCount: count(notesTagsTable.noteId),
       })
       .from(tagsTable)
-      .innerJoin(notesTagsTable, eq(tagsTable.id, notesTagsTable.tag_id))
-      .innerJoin(notesTable, eq(notesTagsTable.note_id, notesTable.id))
-      .where(eq(notesTable.user_id, userId))
+      .innerJoin(notesTagsTable, eq(tagsTable.id, notesTagsTable.tagId))
+      .innerJoin(notesTable, eq(notesTagsTable.noteId, notesTable.id))
+      .where(eq(notesTable.userId, userId))
       .groupBy(tagsTable.id, tagsTable.name);
 
     return result.map((item) => ({
       ...item,
-      notes_count: Number(item.notes_count),
+      notesCount: Number(item.notesCount),
     }));
   }
 }

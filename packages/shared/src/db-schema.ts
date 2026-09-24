@@ -14,7 +14,7 @@ import {
 export const usersTable = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom().notNull(),
   email: text('email').unique().notNull(),
-  password_hash: text('password_hash').notNull(),
+  passwordHash: text('password_hash').notNull(),
   role: text('role').default('user').notNull(),
 });
 
@@ -22,12 +22,12 @@ export const usersTable = pgTable('users', {
 export const foldersTable = pgTable('folders', {
   id: uuid('id').primaryKey().defaultRandom(),
   title: varchar('title', { length: 100 }).notNull(),
-  notes_count: integer('notes_count').default(0).notNull(),
-  is_deleted: boolean('is_deleted').default(false).notNull(),
-  user_id: uuid('user_id')
+  notesCount: integer('notes_count').default(0).notNull(),
+  isDeleted: boolean('is_deleted').default(false).notNull(),
+  userId: uuid('user_id')
     .references(() => usersTable.id)
     .notNull(),
-  created_at: timestamp('created_at', { withTimezone: true, mode: 'string' })
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .defaultNow()
     .notNull(),
 });
@@ -35,21 +35,21 @@ export const foldersTable = pgTable('folders', {
 // СХЕМА ТАБЛИЦЫ NOTES
 export const notesTable = pgTable('notes', {
   id: uuid('id').primaryKey().defaultRandom(),
-  folder_id: uuid('folder_id').references(() => foldersTable.id, {
+  folderId: uuid('folder_id').references(() => foldersTable.id, {
     onDelete: 'set null',
   }),
   title: varchar('title', { length: 255 }).notNull(),
   content: text('content').default('').notNull(),
   version: integer('version').default(1).notNull(),
-  is_archived: boolean('is_archived').default(false).notNull(),
-  is_deleted: boolean('is_deleted').default(false).notNull(),
-  user_id: uuid('user_id')
+  isArchived: boolean('is_archived').default(false).notNull(),
+  isDeleted: boolean('is_deleted').default(false).notNull(),
+  userId: uuid('user_id')
     .references(() => usersTable.id)
     .notNull(),
-  created_at: timestamp('created_at', { withTimezone: true, mode: 'string' })
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .defaultNow()
     .notNull(),
-  updated_at: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
     .defaultNow()
     .notNull(),
 });
@@ -64,23 +64,23 @@ export const tagsTable = pgTable('tags', {
 export const notesTagsTable = pgTable(
   'notes_tags',
   {
-    note_id: uuid('note_id')
+    noteId: uuid('note_id')
       .references(() => notesTable.id, { onDelete: 'cascade' })
       .notNull(),
-    tag_id: uuid('tag_id')
+    tagId: uuid('tag_id')
       .references(() => tagsTable.id, { onDelete: 'cascade' })
       .notNull(),
   },
   (t) => [
     // Составной первичный ключ, чтобы нельзя было привязать один тег к заметке дважды
-    primaryKey({ columns: [t.note_id, t.tag_id] }),
+    primaryKey({ columns: [t.noteId, t.tagId] }),
   ]
 );
 
 // СВЯЗИ ДЛЯ ЗАМЕТОК
 export const notesRelations = relations(notesTable, ({ one, many }) => ({
   folder: one(foldersTable, {
-    fields: [notesTable.folder_id], // используем ваши snake_case поля из кода
+    fields: [notesTable.folderId],
     references: [foldersTable.id],
   }),
   notes_tags: many(notesTagsTable),
@@ -94,11 +94,11 @@ export const foldersRelations = relations(foldersTable, ({ many }) => ({
 // СВЯЗИ ДЛЯ СВЯЗУЮЩЕЙ ТАБЛИЦЫ MANY-TO-MANY
 export const notesTagsRelations = relations(notesTagsTable, ({ one }) => ({
   note: one(notesTable, {
-    fields: [notesTagsTable.note_id],
+    fields: [notesTagsTable.noteId],
     references: [notesTable.id],
   }),
   tag: one(tagsTable, {
-    fields: [notesTagsTable.tag_id],
+    fields: [notesTagsTable.tagId],
     references: [tagsTable.id],
   }),
 }));

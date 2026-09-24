@@ -11,7 +11,7 @@ export function useNotes() {
     useUIStore();
 
   // Формируем query-параметры строго по getNotesQueryParamsSchema контракту бэкенда
-  const folder_id =
+  const folderId =
     activeFilter === 'folder' ? (activeFolderId ?? undefined) : undefined;
   const tagName =
     activeFilter === 'tag' ? (activeTagName ?? undefined) : undefined;
@@ -19,30 +19,13 @@ export function useNotes() {
   return trpc.notes.getNotes.useInfiniteQuery(
     {
       filter: activeFilter, // отправляем 'all' | 'inbox' | 'folder' | 'tag'
-      folder_id,
+      folderId,
       tagName,
       search: searchQuery,
       limit: '20', // tRPC ждет string по схеме бэкенда
     },
     {
-      getNextPageParam: (lastPage: any) => lastPage.next_cursor,
-    }
-  );
-}
-
-export function useAdminNotes() {
-  const { activeFilter, activeFolderId, searchQuery } = useUIStore();
-
-  return trpc.admin.getNotes.useInfiniteQuery(
-    {
-      filter: activeFilter,
-      folder_id: activeFolderId || undefined,
-      limit: '20',
-      search: searchQuery || undefined, // 🔍 Передаем поиск в tRPC!
-    },
-    {
-      initialCursor: undefined,
-      getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
     }
   );
 }
