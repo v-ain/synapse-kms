@@ -49,6 +49,11 @@ export type DeleteFolderInput = z.infer<typeof DeleteFolderSchema>;
 
 export type Tag = InferSelectModel<typeof tagsTable>;
 
+// Создаем расширенный UI/DTO тип: берем все поля Tag и подмешиваем notes_count
+export interface TagWithCount extends Tag {
+  notes_count: number;
+}
+
 // ==========================================
 // СХЕМЫ ВАЛИДАЦИИ И PAYLOADS (Zod)
 // ==========================================

@@ -26,7 +26,7 @@ interface HeaderProps {
 
 export function Header({ onLogout }: HeaderProps) {
   const { activeNoteId, setActiveNote } = useUIStore();
-  const { theme, setTheme } = useTheme();
+  const { setTheme } = useTheme();
 
   return (
     <header className="flex items-center justify-between px-4 md:px-6 h-14 border-b border-slate-200 bg-slate-50/50 backdrop-blur-sm dark:border-slate-800 dark:bg-slate-900/50 shrink-0 z-30 transition-colors">

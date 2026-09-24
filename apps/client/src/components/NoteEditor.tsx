@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useUpdateNote } from '../hooks.js';
 import { Textarea } from '@/components/ui/textarea';
-import { CloudLightning, CloudCheck, Loader2 } from 'lucide-react';
+import { CloudCheck, Loader2 } from 'lucide-react';
+import type { Note } from '@synapse-kms/shared';
 
 interface EditorProps {
-  note:
-    | { id: string; content: string; version: number; title: string }
-    | null
-    | undefined;
+  note: Note | null | undefined;
 }
 
 export const NoteEditor = ({ note }: EditorProps) => {

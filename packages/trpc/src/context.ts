@@ -8,6 +8,7 @@ import type {
   NotePreview,
   PaginatedResponse,
   Tag,
+  TagWithCount,
   UpdateNotePayload,
 } from '@synapse-kms/shared';
 
@@ -90,7 +91,7 @@ export interface ITagService {
     payload: AttachTagPayload,
     userId: string
   ): Promise<{ success: true; tag: Tag }>;
-  getUserTags(userId: string): Promise<Tag[]>;
+  getUserTags(userId: string): Promise<TagWithCount[]>;
 }
 
 export interface IAdminService {

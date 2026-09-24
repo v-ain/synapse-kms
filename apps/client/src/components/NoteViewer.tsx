@@ -4,7 +4,6 @@ import { useNotes, useNote, useArchiveNote, useAttachTag } from '../hooks';
 import { NoteEditor } from './NoteEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Archive, Brain, Loader2, Plus, Tag as TagIcon } from 'lucide-react';
 import { InlineTitleEditor } from './InlineTitleEditor';
