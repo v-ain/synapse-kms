@@ -1,4 +1,4 @@
-import { useUIStore } from '../store';
+import { useUIStore } from '@/store';
 import { Sidebar } from './Sidebar';
 import { useTheme } from './ThemeProvider';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';

@@ -1,8 +1,8 @@
-import { useUIStore } from '../store';
-import { useFolders, useDeleteFolder } from '../hooks';
-import { CreateFolderForm } from './CreateFolderForm';
-import { TagCloud } from './TagCloud';
-import { Button } from './ui/button';
+import { useUIStore } from '@/store';
+import { useFolders, useDeleteFolder } from '@/hooks';
+import { CreateFolderForm } from '@/components/notes/CreateFolderForm';
+import { TagCloud } from '@/components/tags/TagCloud';
+import { Button } from '@/components/ui/button';
 import { Folder, Inbox, Layers, Trash2 } from 'lucide-react';
 
 export function Sidebar() {

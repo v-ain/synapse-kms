@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Sidebar } from './components/Sidebar';
-import { NotesList } from './components/NotesList';
-import { NoteViewer } from './components/NoteViewer';
-import { AuthForm } from './components/AuthForm';
-import { Header } from './components/Header'; // 👈 Наша новая шапка
-import { ThemeProvider } from './components/ThemeProvider'; // 👈 Провайдер тем
+import { Sidebar } from './components/layout/Sidebar';
+import { NotesList } from './components/notes/NotesList';
+import { NoteViewer } from './components/notes/NoteViewer';
+import { AuthForm } from './components/auth/AuthForm';
+import { Header } from './components/layout/Header';
+import { ThemeProvider } from './components/layout/ThemeProvider';
 import { useUIStore } from './store';
 
 export default function App() {

@@ -1,5 +1,5 @@
-import { useUIStore } from '../store';
-import { useNotes, useFolders } from '../hooks';
+import { useUIStore } from '@/store';
+import { useNotes, useFolders } from '@/hooks';
 import { SearchBar } from './SearchBar';
 import { NoteCard } from './NoteCard';
 import { CreateNoteForm } from './CreateNoteForm';

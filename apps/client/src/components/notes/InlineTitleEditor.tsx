@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useUpdateNote } from '../hooks';
+import { useUpdateNote } from '@/hooks';
 import { UpdateNotePayloadSchema } from '@synapse-kms/shared';
-import { mapZodErrorToUi } from '../utils/errorMapper';
+import { mapZodErrorToUi } from '@/utils/errorMapper';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Pencil, Check } from 'lucide-react';

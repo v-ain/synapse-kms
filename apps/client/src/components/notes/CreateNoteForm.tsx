@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { useCreateNote } from '../hooks';
-import { useUIStore } from '../store';
+import { useCreateNote } from '@/hooks';
+import { useUIStore } from '@/store';
 import { CreateNoteSchema } from '@synapse-kms/shared';
-import { mapZodErrorToUi } from '../utils/errorMapper';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Textarea } from './ui/textarea';
+import { mapZodErrorToUi } from '@/utils/errorMapper';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Plus, AlertCircle } from 'lucide-react';
 
 export function CreateNoteForm() {

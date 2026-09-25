@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useUpdateNote } from '../hooks.js';
+import { useUpdateNote } from '@/hooks.js';
 import { UpdateNotePayloadSchema } from '@synapse-kms/shared';
-import { mapZodErrorToUi } from '../utils/errorMapper';
+import { mapZodErrorToUi } from '@/utils/errorMapper';
 import { Textarea } from '@/components/ui/textarea';
 import { CloudCheck, Loader2, AlertCircle } from 'lucide-react';
 import type { Note } from '@synapse-kms/shared';

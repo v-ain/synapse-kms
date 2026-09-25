@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useUIStore } from '../store';
-import { useNotes, useNote, useArchiveNote, useAttachTag } from '../hooks';
+import { useUIStore } from '@/store';
+import { useNotes, useNote, useArchiveNote, useAttachTag } from '@/hooks';
 import { NoteEditor } from './NoteEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

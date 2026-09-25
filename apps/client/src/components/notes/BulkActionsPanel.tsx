@@ -1,5 +1,5 @@
-import { useUIStore } from '../store';
-import { useFolders, useNotes, useBulkMoveNotes } from '../hooks';
+import { useUIStore } from '@/store';
+import { useFolders, useNotes, useBulkMoveNotes } from '@/hooks';
 import { Button } from '@/components/ui/button';
 import {
   Select,

@@ -1,5 +1,5 @@
-import { useUIStore } from '../store';
-import { useTags } from '../hooks';
+import { useUIStore } from '@/store';
+import { useTags } from '@/hooks';
 import { Tag as TagIcon, Loader2 } from 'lucide-react';
 
 export function TagCloud() {
