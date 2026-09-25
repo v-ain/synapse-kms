@@ -1,14 +1,32 @@
 import { initTRPC, TRPCError } from '@trpc/server';
+import { ZodError } from 'zod';
 import { type Context } from './context.js';
 
-const t = initTRPC.context<Context>().create();
+// Инициализируем tRPC с форматтером ошибок
+const t = initTRPC.context<Context>().create({
+  errorFormatter({ shape, error }) {
+    return {
+      ...shape,
+      data: {
+        code: shape.data.code,
+        httpStatus: shape.data.httpStatus,
+        // Скрываем пути к файлам сервера в продакшене, чтобы у хакеров не было зацепок
+        stack:
+          process.env.NODE_ENV === 'production' ? undefined : shape.data.stack,
+        // Удобно прокидываем плоский массив наших код-ключей (TITLE_EMPTY и т.д.)
+        zodError:
+          error.cause instanceof ZodError
+            ? error.cause.flatten((issue) => issue.message)
+            : null,
+      },
+    };
+  },
+});
 
 export const router = t.router;
 export const publicProcedure = t.procedure;
 
-// 🛡️ 1. Создаем middleware для проверки авторизации [health]
 const isAuthed = t.middleware(({ ctx, next }) => {
-  // Если контекст не смог расшифровать куку и userId равен null — даем от ворот поворот
   if (!ctx.userId) {
     throw new TRPCError({
       code: 'UNAUTHORIZED',
@@ -16,16 +34,13 @@ const isAuthed = t.middleware(({ ctx, next }) => {
     });
   }
 
-  // Если всё ок, передаем управление дальше.
-  // Благодаря магии TypeScript, в следующем звене ctx.userId автоматически станет СТРОГОЙ строкой (не null)!
   return next({
     ctx: {
-      userId: ctx.userId, // сужаем тип до string
+      userId: ctx.userId,
     },
   });
 });
 
-// 2. Экспортируем готовую защищенную процедуру [health]
 export const protectedProcedure = t.procedure.use(isAuthed);
 
 // 3. Создаем middleware для проверки роли АДМИНИСТРАТОРА

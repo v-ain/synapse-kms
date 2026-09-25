@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
 import { foldersTable, notesTable, tagsTable } from './db-schema.js';
+import { NOTE_LIMITS } from './constants.js';
 
 export type Note = InferSelectModel<typeof notesTable> & {
   preview?: string;
@@ -80,15 +81,18 @@ export interface PaginatedResponse<T> {
 }
 
 // СХЕМЫ ВАЛИДАЦИИ ZOD (Enterprise-слой)
-
+// packages/shared/src/schemas/notes.ts
 // Схема создания заметки
 export const CreateNoteSchema = z.object({
   title: z
     .string()
-    .min(1, 'Заголовок не может быть пустым')
-    .max(100)
+    .min(NOTE_LIMITS.TITLE_MIN, 'TITLE_EMPTY')
+    .max(NOTE_LIMITS.TITLE_MAX, 'TITLE_TOO_LONG')
     .transform((val) => val.trim()),
-  content: z.string().default(''),
+  content: z
+    .string()
+    .max(NOTE_LIMITS.CONTENT_MAX, 'CONTENT_TOO_LONG')
+    .default(''),
   folderId: z.string().uuid().nullable(),
 });
 
@@ -96,8 +100,15 @@ export const CreateNoteSchema = z.object({
 export const UpdateNotePayloadSchema = z.object({
   id: z.string().uuid(),
   version: z.number().int(),
-  title: z.string().optional(),
-  content: z.string().optional(),
+  title: z
+    .string()
+    .min(NOTE_LIMITS.TITLE_MIN, 'TITLE_EMPTY')
+    .max(NOTE_LIMITS.TITLE_MAX, 'TITLE_TOO_LONG')
+    .optional(),
+  content: z
+    .string()
+    .max(NOTE_LIMITS.CONTENT_MAX, 'CONTENT_TOO_LONG')
+    .optional(),
 });
 
 // Тип автоматически выведется правильно:

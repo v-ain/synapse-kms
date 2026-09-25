@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useUpdateNote } from '../hooks';
+import { UpdateNotePayloadSchema } from '@synapse-kms/shared';
+import { mapZodErrorToUi } from '../utils/errorMapper';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Pencil, Check } from 'lucide-react';
@@ -21,24 +23,45 @@ export function InlineTitleEditor({
   const [isEditing, setIsEditing] = useState(false);
   const [localTitle, setLocalTitle] = useState(currentTitle);
 
-  // Синхронизируем локальный текст при смене активной заметки в ленте
   useEffect(() => {
     setLocalTitle(currentTitle);
     setIsEditing(false);
   }, [noteId, currentTitle]);
 
   const handleSave = () => {
-    setIsEditing(false);
+    const trimmedTitle = localTitle.trim();
 
-    // Если заголовок не менялся — не дёргаем сервер
-    if (localTitle.trim() === currentTitle) return;
+    // Если заголовок полностью стёрли, сбрасываем на дефолт "Без названия"
+    const finalTitle = trimmedTitle || 'Без названия';
 
-    updateNoteMutation.mutate({
+    // Если заголовок не изменился, просто выходим из режима редактирования
+    if (finalTitle === currentTitle) {
+      setIsEditing(false);
+      return;
+    }
+
+    // Валидируем данные на клиенте перед отправкой мутации
+    const validation = UpdateNotePayloadSchema.safeParse({
       id: noteId,
-      version: currentVersion, // Отправляем версию для оптимистичного замка
-      title: localTitle.trim() || 'Без названия',
-      content: currentContent, // Сохраняем текущее тело заметки
+      version: currentVersion,
+      title: finalTitle,
+      content: currentContent,
     });
+
+    if (!validation.success) {
+      // Если валидация провалилась (например, длина > 100 символов),
+      // откатываем инпут к оригинальному значению и пишем предупреждение
+      const translatedError = mapZodErrorToUi(validation.error);
+      console.warn(`[Validation Failed]: ${translatedError}`);
+
+      setLocalTitle(currentTitle);
+      setIsEditing(false);
+      return;
+    }
+
+    // Если всё строго валидно, закрываем инпут и отправляем в сеть
+    setIsEditing(false);
+    updateNoteMutation.mutate(validation.data);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -78,14 +101,12 @@ export function InlineTitleEditor({
   return (
     <div
       onClick={() => setIsEditing(true)}
-      // Убираем group, так как иконка теперь управляется самостоятельно
       className="flex items-center gap-2 cursor-pointer rounded-md hover:bg-slate-50 dark:hover:bg-slate-900/50 px-1 py-0.5 -ml-1 transition-colors w-fit max-w-full flex-1 min-w-0"
     >
       <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50 truncate">
         {currentTitle || 'Без названия'}
       </h2>
 
-      {/* ✏️ Карандаш теперь виден ВСЕГДА. Наведение мыши плавно делает его чуть темнее/ярче */}
       <Pencil className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 transition-colors shrink-0" />
     </div>
   );

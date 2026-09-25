@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { useUIStore } from '../store';
 import { useCreateNote } from '../hooks';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Plus } from 'lucide-react';
+import { useUIStore } from '../store';
+import { CreateNoteSchema } from '@synapse-kms/shared';
+import { mapZodErrorToUi } from '../utils/errorMapper';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
+import { Plus, AlertCircle } from 'lucide-react';
 
 export function CreateNoteForm() {
   const { activeFilter, activeFolderId } = useUIStore();
@@ -13,21 +15,36 @@ export function CreateNoteForm() {
   const [newNoteTitle, setNewNoteTitle] = useState('');
   const [newNoteContent, setNewNoteContent] = useState('');
 
+  // Стейт для хранения ошибки валидации
+  const [error, setError] = useState<string | null>(null);
+
   const handleCreateNote = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newNoteTitle.trim()) return;
+    setError(null); // Сбрасываем ошибку перед новой валидацией
 
     const folderId = activeFilter === 'folder' ? activeFolderId : null;
 
-    createNoteMutation.mutate(
-      { title: newNoteTitle, content: newNoteContent, folderId: folderId },
-      {
-        onSuccess: () => {
-          setNewNoteTitle('');
-          setNewNoteContent('');
-        },
-      }
-    );
+    // Безопасный парсинг Zod-схемы на клиенте
+    const validation = CreateNoteSchema.safeParse({
+      title: newNoteTitle,
+      content: newNoteContent,
+      folderId: folderId,
+    });
+
+    if (!validation.success) {
+      // Маппим ошибку в понятный русский текст и прерываем отправку
+      setError(mapZodErrorToUi(validation.error));
+      return;
+    }
+
+    // Если валидация успешна, шлём чистые проверенные данные
+    createNoteMutation.mutate(validation.data, {
+      onSuccess: () => {
+        setNewNoteTitle('');
+        setNewNoteContent('');
+        setError(null);
+      },
+    });
   };
 
   return (
@@ -44,22 +61,44 @@ export function CreateNoteForm() {
         type="text"
         placeholder="Заголовок..."
         value={newNoteTitle}
-        onChange={(e) => setNewNoteTitle(e.target.value)}
-        className="h-9 bg-slate-50/50 dark:bg-slate-900/50"
+        onChange={(e) => {
+          setNewNoteTitle(e.target.value);
+          if (error) setError(null); // Гасим ошибку, когда пользователь начинает исправлять ввод
+        }}
+        className={`h-9 bg-slate-50/50 dark:bg-slate-900/50 transition-colors ${
+          error && (error.includes('Заголовок') || error.includes('пустым'))
+            ? 'border-destructive focus-visible:ring-destructive dark:border-destructive'
+            : ''
+        }`}
         disabled={createNoteMutation.isPending}
       />
 
-      {/* 🔮 ФИКС БАГА: Жёстко зажимаем высоту черновика через max-h и разрешаем внутренний скролл */}
+      {/* Текстовая область контента */}
       <Textarea
         placeholder="Контент заметки..."
         value={newNoteContent}
-        onChange={(e) => setNewNoteContent(e.target.value)}
+        onChange={(e) => {
+          setNewNoteContent(e.target.value);
+          if (error) setError(null);
+        }}
         rows={2}
-        className="resize-none max-h-[280px] overflow-y-auto text-xs bg-slate-50/50 dark:bg-slate-900/50 leading-relaxed focus-visible:ring-1"
+        className={`resize-none max-h-[280px] overflow-y-auto text-xs bg-slate-50/50 dark:bg-slate-900/50 leading-relaxed focus-visible:ring-1 transition-colors ${
+          error && error.includes('Содержимое')
+            ? 'border-destructive focus-visible:ring-destructive dark:border-destructive'
+            : ''
+        }`}
         disabled={createNoteMutation.isPending}
       />
 
-      {/* Кнопка отправки всегда остаётся на месте */}
+      {/* Плавный вывод ошибки валидации под полями */}
+      {error && (
+        <div className="flex items-center gap-1.5 text-xs font-medium text-destructive px-1 animate-in fade-in slide-in-from-top-1 duration-150">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Кнопка отправки */}
       <Button
         type="submit"
         size="sm"
