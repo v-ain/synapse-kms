@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useUpdateNote } from '@/hooks';
-import { UpdateNotePayloadSchema } from '@synapse-kms/shared';
-import { mapZodErrorToUi } from '@/utils/errorMapper';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Pencil, Check } from 'lucide-react';
@@ -9,20 +7,18 @@ import { Pencil, Check } from 'lucide-react';
 interface InlineTitleEditorProps {
   noteId: string;
   currentTitle: string;
-  currentContent: string;
-  currentVersion: number;
 }
 
 export function InlineTitleEditor({
   noteId,
   currentTitle,
-  currentContent,
-  currentVersion,
 }: InlineTitleEditorProps) {
-  const updateNoteMutation = useUpdateNote();
+  // Достаем обернутый метод и статус из нашего LWW-хука
+  const { updateNote, isPending } = useUpdateNote();
   const [isEditing, setIsEditing] = useState(false);
   const [localTitle, setLocalTitle] = useState(currentTitle);
 
+  // Синхронизируем локальный стейт при переключении заметок или изменении извне
   useEffect(() => {
     setLocalTitle(currentTitle);
     setIsEditing(false);
@@ -30,38 +26,32 @@ export function InlineTitleEditor({
 
   const handleSave = () => {
     const trimmedTitle = localTitle.trim();
-
-    // Если заголовок полностью стёрли, сбрасываем на дефолт "Без названия"
     const finalTitle = trimmedTitle || 'Без названия';
 
-    // Если заголовок не изменился, просто выходим из режима редактирования
+    // Если заголовок не изменился, просто закрываем инпут без сетевого запроса
     if (finalTitle === currentTitle) {
       setIsEditing(false);
       return;
     }
 
-    // Валидируем данные на клиенте перед отправкой мутации
-    const validation = UpdateNotePayloadSchema.safeParse({
-      id: noteId,
-      version: currentVersion,
-      title: finalTitle,
-      content: currentContent,
-    });
-
-    if (!validation.success) {
-      // Если валидация провалилась (например, длина > 100 символов),
-      // откатываем инпут к оригинальному значению и пишем предупреждение
-      const translatedError = mapZodErrorToUi(validation.error);
-      console.warn(`[Validation Failed]: ${translatedError}`);
-
+    // Быстрая проверка лимита длины (NOTE_LIMITS.TITLE_MAX обычно 255)
+    if (finalTitle.length > 255) {
+      console.warn(
+        '[Validation Failed]: Заголовок слишком длинный (макс. 255 симв.)'
+      );
       setLocalTitle(currentTitle);
       setIsEditing(false);
       return;
     }
 
-    // Если всё строго валидно, закрываем инпут и отправляем в сеть
     setIsEditing(false);
-    updateNoteMutation.mutate(validation.data);
+
+    // Отправляем только ID и изменившийся заголовок.
+    // content не нужен, база обновит поля частично, а clientUpdatedAt подставится в хуке!
+    updateNote({
+      id: noteId,
+      title: finalTitle,
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -83,14 +73,14 @@ export function InlineTitleEditor({
           onKeyDown={handleKeyDown}
           className="h-8 text-base font-bold text-slate-900 dark:text-slate-50 bg-slate-50/50"
           autoFocus
-          disabled={updateNoteMutation.isPending}
+          disabled={isPending}
         />
         <Button
           size="icon"
           variant="ghost"
           className="h-8 w-8 text-emerald-500 shrink-0"
           onClick={handleSave}
-          disabled={updateNoteMutation.isPending}
+          disabled={isPending}
         >
           <Check className="h-4 w-4" />
         </Button>

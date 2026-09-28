@@ -34,7 +34,7 @@ export function BulkActionsPanel({ currentNotesIds }: BulkActionsPanelProps) {
 
   const { data: notesData } = useNotes();
   const { data: folders } = useFolders();
-  const bulkMoveMutation = useBulkMoveNotes();
+  const { bulkMove, isPending } = useBulkMoveNotes();
 
   const isAllSelected =
     currentNotesIds.length > 0 &&
@@ -55,20 +55,18 @@ export function BulkActionsPanel({ currentNotesIds }: BulkActionsPanelProps) {
   const handleBulkMove = () => {
     if (selectedNoteIds.length === 0) return;
 
-    const allNotesFlat = notesData?.pages.flatMap((page) => page.items) || [];
-    const itemsToSend = selectedNoteIds.map((id) => {
-      const foundNote = allNotesFlat.find((n) => n.id === id);
-      return {
-        id,
-        version: foundNote ? foundNote.version : 1,
-      };
-    });
-
+    // Конвертируем строку 'inbox' в null для бэкенда
     const folderId = targetFolderId === 'inbox' ? null : targetFolderId;
 
-    bulkMoveMutation.mutate(
-      { items: itemsToSend, targetFolderId: folderId },
-      { onSuccess: () => clearSelection() }
+    // Просто передаем массив ID и целевую папку. Дата сгенерируется внутри хука.
+    bulkMove(
+      {
+        ids: selectedNoteIds,
+        targetFolderId: folderId,
+      },
+      {
+        onSuccess: () => clearSelection(),
+      }
     );
   };
 
@@ -132,9 +130,9 @@ export function BulkActionsPanel({ currentNotesIds }: BulkActionsPanelProps) {
             size="sm"
             className="h-9 text-xs px-3.5 shrink-0 gap-1.5 font-semibold bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-50 dark:text-slate-900 shadow-sm"
             onClick={handleBulkMove}
-            disabled={bulkMoveMutation.isPending}
+            disabled={isPending}
           >
-            {bulkMoveMutation.isPending ? (
+            {isPending ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <FolderInput className="h-3.5 w-3.5" />

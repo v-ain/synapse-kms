@@ -1,6 +1,6 @@
 import { eq, and, sql as drizzleSql } from 'drizzle-orm';
 import { foldersTable, notesTable } from '@synapse-kms/shared';
-import type { Folder } from '@synapse-kms/shared';
+import type { DeleteFolderPayload, Folder } from '@synapse-kms/shared';
 import { DrizzleDB } from 'src/db.js';
 import { IFolderService } from '@synapse-kms/trpc';
 
@@ -31,51 +31,41 @@ export class FolderService implements IFolderService {
     return folder;
   }
 
-  // Мягкое удаление папки (Enterprise транзакция с проверкой существования)
   async deleteFolder(
-    id: string,
+    payload: DeleteFolderPayload,
     userId: string
-  ): Promise<
-    | { error: string; status: number; success?: never }
-    | { error: null; success: true; status?: never }
-  > {
-    // 1. Проверяем, существует ли живая папка у этого пользователя
-    const [existingFolder] = await this.db
-      .select()
-      .from(foldersTable)
-      .where(
-        and(
-          eq(foldersTable.id, id),
-          eq(foldersTable.userId, userId),
-          eq(foldersTable.isDeleted, false)
-        )
-      )
-      .limit(1);
+  ): Promise<boolean> {
+    const { id, clientUpdatedAt } = payload;
+    const currentIsoString = new Date().toISOString();
 
-    if (!existingFolder) {
-      return {
-        error: 'Папка не найдена или уже была удалена',
-        status: 404,
-      };
-    }
-
-    // 2. Если папка на месте, запускаем ACID-транзакцию через Drizzle
-    await this.db.transaction(async (tx) => {
-      // А. Маркируем папку как удаленную
-      await tx
+    const success = await this.db.transaction(async (tx) => {
+      // А. Пытаемся пометить папку как удаленную.
+      // Если она уже удалена или принадлежит другому юзеру — вернется пустой массив.
+      const [deletedFolder] = await tx
         .update(foldersTable)
         .set({ isDeleted: true })
-        .where(and(eq(foldersTable.id, id), eq(foldersTable.userId, userId)));
+        .where(
+          and(
+            eq(foldersTable.id, id),
+            eq(foldersTable.userId, userId),
+            eq(foldersTable.isDeleted, false)
+          )
+        )
+        .returning({ id: foldersTable.id });
+
+      // Если папка не найдена или уже удалена, прерываем транзакцию и возвращаем false
+      if (!deletedFolder) {
+        return false;
+      }
 
       // Б. Выбрасываем живые заметки из этой папки во Входящие (NULL)
+      // Обновляем их timestamps под стратегию LWW
       await tx
         .update(notesTable)
         .set({
           folderId: null,
-          version: drizzleSql`${notesTable.version} + 1`,
-          // Внимание: так как в заметках включен mode: 'string',
-          // CURRENT_TIMESTAMP в Postgres запишется идеально, и Drizzle вернет строку!
-          updatedAt: drizzleSql`CURRENT_TIMESTAMP`,
+          clientUpdatedAt: clientUpdatedAt, // Метка времени от действия пользователя
+          updatedAt: currentIsoString, // Серверный аудит
         })
         .where(
           and(
@@ -84,8 +74,10 @@ export class FolderService implements IFolderService {
             eq(notesTable.isDeleted, false)
           )
         );
+
+      return true;
     });
 
-    return { error: null, success: true };
+    return success;
   }
 }

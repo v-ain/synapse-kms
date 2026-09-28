@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useUpdateNote } from '@/hooks.js';
-import { UpdateNotePayloadSchema } from '@synapse-kms/shared';
-import { mapZodErrorToUi } from '@/utils/errorMapper';
 import { Textarea } from '@/components/ui/textarea';
 import { CloudCheck, Loader2, AlertCircle } from 'lucide-react';
 import type { Note } from '@synapse-kms/shared';
@@ -13,13 +11,15 @@ interface EditorProps {
 export const NoteEditor = ({ note }: EditorProps) => {
   const [text, setText] = useState(note?.content || '');
   const [error, setError] = useState<string | null>(null);
-  const updateNoteMutation = useUpdateNote();
+
+  // Достаем обернутый метод updateNote из нашего кастомного хука
+  const { updateNote, isPending } = useUpdateNote();
 
   // Синхронизируем локальный стейт при переключении заметок
   useEffect(() => {
     if (note) {
       setText(note.content);
-      setError(null); // Сбрасываем ошибку при переходе на другую заметку
+      setError(null);
     }
   }, [note?.id, note?.content]);
 
@@ -28,30 +28,34 @@ export const NoteEditor = ({ note }: EditorProps) => {
     if (!note || text === note.content) return;
 
     const timer = setTimeout(() => {
-      // 🧬 Валидируем данные на клиенте по Zod-схеме
-      const validation = UpdateNotePayloadSchema.safeParse({
-        id: note.id,
-        version: note.version,
-        content: text,
-      });
-
-      if (!validation.success) {
-        // Если текст > 5000 символов, выводим ошибку в статус-бар и блокируем мутацию
-        setError(mapZodErrorToUi(validation.error));
+      // 🧬 Прямая и быстрая проверка лимита без оверхеда на Zod-парсинг полной схемы
+      // (Лимит в 5000 взят из вашей старой схемы валидации текста)
+      if (text.length > 5000) {
+        setError('CONTENT_TOO_LONG: Текст превышает лимит в 5000 символов');
         return;
       }
 
-      setError(null); // Если всё ок, убираем ошибку
-      updateNoteMutation.mutate(validation.data);
+      setError(null);
+
+      // Вызываем наш оптимизированный метод. Дата подмешается автоматически!
+      updateNote({
+        id: note.id,
+        content: text,
+      });
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [text, note?.id, note?.version, note?.content]);
+  }, [text, note?.id, note?.content]); // Больше никакой зависимости от версии!
 
   if (!note) return null;
 
   // Считаем слова на лету
   const wordCount = text.split(/\s+/).filter(Boolean).length;
+
+  // Форматируем время сохранения для статус-бара
+  const lastSavedTime = note.clientUpdatedAt
+    ? new Date(note.clientUpdatedAt).toLocaleTimeString()
+    : '--:--:--';
 
   return (
     <div className="flex flex-col w-full space-y-2">
@@ -76,7 +80,7 @@ export const NoteEditor = ({ note }: EditorProps) => {
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               <span>{error}</span>
             </div>
-          ) : updateNoteMutation.isPending ? (
+          ) : isPending ? (
             <>
               <Loader2 className="h-3 w-3 animate-spin text-primary" />
               <span className="text-slate-700 dark:text-slate-300 font-semibold animate-pulse">
@@ -101,9 +105,9 @@ export const NoteEditor = ({ note }: EditorProps) => {
           </span>
           <span className="text-slate-300 dark:text-slate-700">|</span>
           <span>
-            Версия:{' '}
+            Сохранено:{' '}
             <strong className="text-slate-700 dark:text-slate-300">
-              v{note.version}
+              {lastSavedTime}
             </strong>
           </span>
         </div>

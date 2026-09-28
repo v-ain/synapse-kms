@@ -5,17 +5,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { ExternalLink, Calendar } from 'lucide-react'; // npm i lucide-react (иконки)
+import { Calendar } from 'lucide-react';
+import type { NotePreview } from '@synapse-kms/shared';
 
 interface NoteCardProps {
-  note: {
-    id: string | number;
-    title: string;
-    url?: string;
-    content?: string;
-    createdAt?: string;
-  };
+  note: NotePreview;
 }
 
 export function NoteCard({ note }: NoteCardProps) {
@@ -35,20 +29,6 @@ export function NoteCard({ note }: NoteCardProps) {
 
       <CardContent className="text-sm text-slate-600 space-y-2 flex-1">
         {note.preview && <p className="line-clamp-3">{note.preview}</p>}
-
-        {note.url || (
-          <div className="pt-2">
-            <a
-              href={note.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline break-all"
-            >
-              <span>{'note.url'}</span>
-              <ExternalLink className="h-3 w-3 flex-shrink-0" />
-            </a>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

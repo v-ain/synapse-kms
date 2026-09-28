@@ -1,4 +1,14 @@
-import { eq, and, sql, desc, lt, ilike, or, exists } from 'drizzle-orm';
+import {
+  eq,
+  and,
+  sql,
+  desc,
+  lt,
+  ilike,
+  or,
+  exists,
+  inArray,
+} from 'drizzle-orm';
 import {
   notesTable,
   foldersTable,
@@ -68,38 +78,19 @@ export class NoteService implements INoteService {
 
     // Магия Курсора: если передан, берем записи строго старше таймстемпа курсора
     if (cursor) {
-      conditions.push(lt(notesTable.updatedAt, cursor));
+      conditions.push(lt(notesTable.clientUpdatedAt, cursor));
     }
-
-    // if (query.search && query.search.trim().length > 0) {
-    //   const searchPattern = query.search.trim();
-    //
-    //   const searchFilter = or(
-    //     // 1. Поиск по подстроке в заголовке
-    //     ilike(notesTable.title, `%${searchPattern}%`),
-    //     // 2. Полнотекстовый поиск по контенту заметки
-    //     sql`to_tsvector('russian', ${notesTable.content}) @@ to_tsquery('russian', ${searchPattern.replace(/\s+/g, ' & ')})`
-    //   );
-    //
-    //   // 🪄 Проверяем, что Drizzle успешно собрал SQL-фрагмент
-    //   if (searchFilter) {
-    //     conditions.push(searchFilter);
-    //   }
-    // }
 
     const isSearchActive = query.search && query.search.trim().length > 0;
     const searchPattern = isSearchActive ? query.search!.trim() : '';
 
     if (isSearchActive) {
-      // Формируем паттерн для ILIKE (поиск по подстроке)
       const likePattern = `%${searchPattern}%`;
-
       conditions.push(
         or(
           ilike(notesTable.title, likePattern),
-          ilike(notesTable.content, likePattern), // 🛡️ Дублируем быстрый ILIKE на контент, если полнотекст промахнётся
-          // Полнотекстовый поиск с префиксами (чтобы искало по мере ввода: "баз" найдет "база")
-          sql`to_tsvector('russian', coalesce(${notesTable.content}, '')) @@ to_tsquery('russian', ${searchPattern.replace(/\s+/g, ' & ') + ':*'})`
+          // plainto_tsquery безопасно очищает пользовательский ввод от спецсимволов операторов СУБД
+          sql`to_tsvector('russian', coalesce(${notesTable.title}, '') || ' ' || coalesce(${notesTable.content}, '')) @@ plainto_tsquery('russian', ${searchPattern})`
         )!
       );
     }
@@ -110,7 +101,7 @@ export class NoteService implements INoteService {
         id: notesTable.id,
         folderId: notesTable.folderId,
         title: notesTable.title,
-        version: notesTable.version,
+        clientUpdatedAt: notesTable.clientUpdatedAt,
         isArchived: notesTable.isArchived,
         createdAt: notesTable.createdAt,
         updatedAt: notesTable.updatedAt,
@@ -125,42 +116,32 @@ export class NoteService implements INoteService {
       .leftJoin(tagsTable, eq(notesTagsTable.tagId, tagsTable.id))
       .where(and(...conditions))
       .groupBy(notesTable.id)
-      .orderBy(desc(notesTable.updatedAt))
+      .orderBy(desc(notesTable.clientUpdatedAt))
       .limit(sqlLimit);
 
-    rawNotes = rawNotes.map((note) => {
-      let highlightedPreview = note.preview || '';
+    // 🎨 6. Фронтенд-подсветка найденного текста
+    if (isSearchActive) {
+      const escapedSearch = searchPattern.replace(
+        /[-\/\\^\$*+?.()|[\]{}]/g,
+        '\\$&'
+      );
+      const regex = new RegExp(`(${escapedSearch})`, 'gi');
 
-      if (isSearchActive) {
-        // Экранируем спецсимволы в поисковом запросе на всякий случай
-        const escapedSearch = searchPattern.replace(
-          /[-\/\\^$*+?.()|[\]{}]/g,
-          '\\$&'
-        );
-
-        // Создаем регистронезависимое регулярное выражение
-        const regex = new RegExp(`(${escapedSearch})`, 'gi');
-
-        // Оборачиваем все совпадения в точно такие же теги mark!
-        highlightedPreview = highlightedPreview.replace(
-          regex,
-          '<mark class="bg-amber-500/20 text-amber-300 px-0.5 rounded">$1</mark>'
-        );
-      }
-
-      return {
+      rawNotes = rawNotes.map((note) => ({
         ...note,
-        preview: highlightedPreview, // отдаем на фронтенд строку с уже готовой подсветкой!
-      };
-    });
+        preview: (note.preview || '').replace(
+          regex,
+          '<mark class="bg-amber-500/20 text-amber-300 px-0.5 rounded">\$1</mark>'
+        ),
+      }));
+    }
 
     const hasMore = rawNotes.length > parsedLimit;
     const items = hasMore ? rawNotes.slice(0, parsedLimit) : rawNotes;
 
     let nextCursor: string | null = null;
     if (items.length > 0) {
-      const lastItem = items[items.length - 1];
-      nextCursor = lastItem.updatedAt;
+      nextCursor = items[items.length - 1].clientUpdatedAt;
     }
 
     return {
@@ -185,7 +166,12 @@ export class NoteService implements INoteService {
       )
       .limit(1);
 
-    return note || null;
+    if (!note) return null;
+
+    return {
+      ...note,
+      preview: (note.content || '').substring(0, 150),
+    };
   }
 
   // СОЗДАТЬ ЗАМЕТКУ (С транзакционным пересчетом счетчика папки)
@@ -225,84 +211,82 @@ export class NoteService implements INoteService {
     return newNote;
   }
 
-  // 🔄 4. BULK MOVE: МАССОВОЕ ПЕРЕМЕЩЕНИЕ С АТОМАРНЫМ ОПТИМИСТИЧНЫМ КОНТРОЛЕМ ВЕРСИЙ
   async bulkMove(
     payload: BulkMovePayload,
     userId: string
-  ): Promise<{ success: boolean; conflict?: boolean }> {
+  ): Promise<{ success: true; movedIds: string[] }> {
     const { items, targetFolderId } = payload;
-    const noteIds = items.map((i) => i.id);
 
-    const result = await this.db.transaction(async (tx) => {
-      // А. Собираем уникальные ID всех старых папок, откуда забираем заметки, чтобы потом обновить их счетчики
+    const movedIds: string[] = [];
+
+    await this.db.transaction(async (tx) => {
+      // А. Собираем ID всех папок, где сейчас лежат эти заметки (до перемещения)
+      const noteIds = items.map((i) => i.id);
       const oldNotes = await tx
         .select({ folderId: notesTable.folderId })
         .from(notesTable)
         .where(
-          and(
-            sql`${notesTable.id} IN ${noteIds}`,
-            eq(notesTable.userId, userId)
-          )
+          and(inArray(notesTable.id, noteIds), eq(notesTable.userId, userId))
         );
 
       const uniqueOldFolderIds = Array.from(
         new Set(oldNotes.map((n) => n.folderId).filter(Boolean))
-      );
+      ) as string[];
 
-      // Б. Проверяем версии для предотвращения Race Condition (Оптимистичная блокировка)
+      // Б. Выполняем массовое обновление с LWW защитой для КАЖДОЙ заметки
+      // Больше никаких SELECT для проверки версий — сразу бьем в UPDATE!
       for (const item of items) {
-        const [currentNote] = await tx
-          .select({ version: notesTable.version })
-          .from(notesTable)
-          .where(
-            and(eq(notesTable.id, item.id), eq(notesTable.userId, userId))
-          );
-
-        if (!currentNote || currentNote.version !== item.version) {
-          return { success: false, conflict: true }; // Версия не совпала — откат транзакции!
-        }
-      }
-
-      // В. Выполняем массовое обновление папки назначения и инкрементируем версии
-      for (const item of items) {
-        await tx
+        const [updated] = await tx
           .update(notesTable)
           .set({
             folderId: targetFolderId || null,
-            version: sql`${notesTable.version} + 1`,
-            updatedAt: sql`CURRENT_TIMESTAMP`,
+            clientUpdatedAt: item.clientUpdatedAt,
+            updatedAt: new Date().toISOString(),
           })
           .where(
-            and(eq(notesTable.id, item.id), eq(notesTable.userId, userId))
-          );
-      }
+            and(
+              eq(notesTable.id, item.id),
+              eq(notesTable.userId, userId),
+              // Обновляем только если пришедший пакет новее того, что в базе
+              lt(notesTable.clientUpdatedAt, item.clientUpdatedAt)
+            )
+          )
+          .returning({ id: notesTable.id });
 
-      // Г. Атомарно пересчитываем счетчики во ВСЕХ затронутых старых папках
-      if (uniqueOldFolderIds.length > 0) {
-        for (const fId of uniqueOldFolderIds) {
-          await tx
-            .update(foldersTable)
-            .set({
-              notesCount: sql`(SELECT COUNT(*) FROM ${notesTable} WHERE ${notesTable.folderId} = ${foldersTable.id} AND ${notesTable.isArchived} = false AND ${notesTable.isDeleted} = false)`,
-            })
-            .where(eq(foldersTable.id, fId as string));
+        if (updated) {
+          movedIds.push(updated.id);
         }
       }
 
-      // Д. Атомарно пересчитываем счетчик для НОВОЙ папки
+      // Если ни одна заметка не обновилась (все запросы устарели), счетчики менять не нужно
+      if (movedIds.length === 0) return;
+
+      // В. Собираем все папки, у которых нужно обновить счетчики (старые + новая)
+      const foldersToUpdate = new Set([...uniqueOldFolderIds]);
       if (targetFolderId) {
-        await tx
-          .update(foldersTable)
-          .set({
-            notesCount: sql`(SELECT COUNT(*) FROM ${notesTable} WHERE ${notesTable.folderId} = ${foldersTable.id} AND ${notesTable.isArchived} = false AND ${notesTable.isDeleted} = false)`,
-          })
-          .where(eq(foldersTable.id, targetFolderId));
+        foldersToUpdate.add(targetFolderId);
       }
 
-      return { success: true };
+      // Г. Оптимизированный пересчет счетчиков: обновляем папки одним махом в цикле по затронутым ID
+      if (foldersToUpdate.size > 0) {
+        for (const fId of foldersToUpdate) {
+          await tx
+            .update(foldersTable)
+            .set({
+              notesCount: sql`(
+              SELECT COUNT(*) 
+              FROM ${notesTable} 
+              WHERE ${notesTable.folderId} = ${foldersTable.id} 
+                AND ${notesTable.isArchived} = false 
+                AND ${notesTable.isDeleted} = false
+            )`,
+            })
+            .where(eq(foldersTable.id, fId));
+        }
+      }
     });
 
-    return result;
+    return { success: true, movedIds };
   }
 
   // 5. АРХИВАЦИЯ ЗАМЕТКИ (Оптимизированная ACID логика без лишних SELECT)
@@ -341,23 +325,26 @@ export class NoteService implements INoteService {
     return result;
   }
 
+  /**
+   * Атомарное обновление заметки на основе семантики Last-Write-Wins (LWW).
+   * Исключает race conditions на уровне HTTP без блокировки таблиц.
+   */
   async updateNote(
     payload: UpdateNotePayload,
     userId: string
-  ): Promise<{ conflict: true; note: null } | { conflict: false; note: Note }> {
-    const { id, version, title, content } = payload;
+  ): Promise<Note | null> {
+    const { id, clientUpdatedAt, title, content } = payload;
 
     // Собираем динамический объект полей для апдейта
     const updateFields: Record<string, any> = {
-      // Атомарно увеличиваем версию на 1 при каждом успешном сохранении!
-      version: sql`${notesTable.version} + 1`,
-      updatedAt: new Date().toISOString(), // обновляем таймстамп
+      clientUpdatedAt,
+      updatedAt: new Date().toISOString(), // Серверный аудит
     };
 
     if (title !== undefined) updateFields.title = title.trim();
     if (content !== undefined) updateFields.content = content;
 
-    // Выполняем апдейт с проверкой версии (наш оптимистичный замок)
+    // 1. Атомарный апдейт по времени изменения на клиенте
     const [updatedNote] = await this.db
       .update(notesTable)
       .set(updateFields)
@@ -365,25 +352,34 @@ export class NoteService implements INoteService {
         and(
           eq(notesTable.id, id),
           eq(notesTable.userId, userId),
-          eq(notesTable.version, version) // Строго проверяем, что версия не изменилась!
+          // Защита: обновляем, только если в БД лежит более старый timestamp
+          lt(notesTable.clientUpdatedAt, clientUpdatedAt)
         )
       )
       .returning();
 
-    // 💥 Если база ничего не вернула, значит версия в БД уже больше, чем прислал фронтенд
-    if (!updatedNote) {
-      return { conflict: true, note: null };
-    }
-
-    // Возвращаем структуру, готовую для фронтенда (как в твоем getNoteById)
-    return {
-      conflict: false,
-      note: {
+    // 2. Если апдейт сработал — возвращаем обновленную заметку с preview
+    if (updatedNote) {
+      return {
         ...updatedNote,
         preview: (updatedNote.content || '').substring(0, 150),
-        // Теги подтянутся кэшем или отдельным селектом, если нужно,
-        // но для сохранения контента в редакторе достаточно вернуть саму заметку
-      },
+      };
+    }
+
+    // 2. Фолбэк: если запрос устарел, берем то, что прямо сейчас лежит в базе
+    const [currentNote] = await this.db
+      .select()
+      .from(notesTable)
+      .where(and(eq(notesTable.id, id), eq(notesTable.userId, userId)))
+      .limit(1);
+
+    if (!currentNote) {
+      return null;
+    }
+
+    return {
+      ...currentNote,
+      preview: (currentNote.content || '').substring(0, 150),
     };
   }
 }

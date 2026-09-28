@@ -38,11 +38,12 @@ export const CreateFolderSchema = z.object({
 // Схема для удаления папки
 export const DeleteFolderSchema = z.object({
   id: z.string().uuid({ message: 'Некорректный формат ID папки' }),
+  clientUpdatedAt: z.string().datetime({ offset: true }),
 });
 
 // Экспортируем типы инференса для использования в контрактах сервисов
 export type CreateFolderInput = z.infer<typeof CreateFolderSchema>;
-export type DeleteFolderInput = z.infer<typeof DeleteFolderSchema>;
+export type DeleteFolderPayload = z.infer<typeof DeleteFolderSchema>;
 
 // ==========================================
 // ДОМЕННЫЕ ТИПЫ (Авто-вывод из базы данных)
@@ -96,10 +97,11 @@ export const CreateNoteSchema = z.object({
   folderId: z.string().uuid().nullable(),
 });
 
-// Пример правильной Zod-схемы для апдейта заметки
+// Zod-схемы для апдейта заметки
 export const UpdateNotePayloadSchema = z.object({
   id: z.string().uuid(),
-  version: z.number().int(),
+  // Заменяем version на обязательную ISO-строку даты изменения
+  clientUpdatedAt: z.string().datetime({ offset: true }),
   title: z
     .string()
     .min(NOTE_LIMITS.TITLE_MIN, 'TITLE_EMPTY')
@@ -115,16 +117,21 @@ export const UpdateNotePayloadSchema = z.object({
 export type UpdateNotePayload = z.infer<typeof UpdateNotePayloadSchema>;
 
 // Схема пакетного перемещения заметок
-export const BulkMoveSchema = z.object({
+export const BulkMovePayloadSchema = z.object({
   items: z
-    .array(z.object({ id: z.string().uuid(), version: z.number().int() }))
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        clientUpdatedAt: z.string().datetime({ offset: true }),
+      })
+    )
     .min(1),
   targetFolderId: z.string().uuid().nullable(),
 });
 
 // TS-типы строятся по схемам валидации!
 export type CreateNotePayload = z.infer<typeof CreateNoteSchema>;
-export type BulkMovePayload = z.infer<typeof BulkMoveSchema>;
+export type BulkMovePayload = z.infer<typeof BulkMovePayloadSchema>;
 
 // Описываем допустимые значения для фильтра
 export const notesFilterSchema = z.enum([

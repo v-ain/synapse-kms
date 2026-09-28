@@ -40,11 +40,17 @@ export const notesTable = pgTable('notes', {
   }),
   title: varchar('title', { length: 255 }).notNull(),
   content: text('content').default('').notNull(),
-  version: integer('version').default(1).notNull(),
   isArchived: boolean('is_archived').default(false).notNull(),
   isDeleted: boolean('is_deleted').default(false).notNull(),
   userId: uuid('user_id')
     .references(() => usersTable.id)
+    .notNull(),
+  // Метка точного времени изменения на клиенте для разрешения гонок (LWW)
+  clientUpdatedAt: timestamp('client_updated_at', {
+    withTimezone: true,
+    mode: 'string',
+  })
+    .defaultNow()
     .notNull(),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .defaultNow()

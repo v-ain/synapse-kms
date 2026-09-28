@@ -76,7 +76,10 @@ export function Sidebar() {
                       onClick={(e) => {
                         e.stopPropagation();
                         if (confirm('Удалить папку?')) {
-                          deleteFolderMutation.mutate({ id: folder.id });
+                          deleteFolderMutation.mutate({
+                            id: folder.id,
+                            clientUpdatedAt: new Date().toISOString(),
+                          });
                         }
                       }}
                     >
