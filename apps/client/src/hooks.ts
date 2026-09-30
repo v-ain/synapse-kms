@@ -176,11 +176,15 @@ export function useAttachTag() {
   });
 }
 
-// ✍️ 3. ХУК ОБНОВЛЕНИЯ ЗАМЕТКИ (LWW)
+// 3. ХУК ОБНОВЛЕНИЯ ЗАМЕТКИ (LWW)
 export function useUpdateNote() {
   const utils = trpc.useUtils();
 
   const mutation = trpc.notes.update.useMutation({
+    // Включаем безопасные LWW-ретраи для отказоустойчивости при моргании сети
+    retry: 3,
+    retryDelay: (attempt) => Math.min(attempt * 1000, 5000),
+
     onSuccess: (updatedNote) => {
       // Точечно синхронизируем кэш конкретной заметки
       utils.notes.getById.setData({ id: updatedNote.id }, updatedNote);
@@ -192,16 +196,18 @@ export function useUpdateNote() {
     },
   });
 
-  // Оборачиваем мутацию: автоматически подмешиваем свежий clientUpdatedAt
-  const updateNote = (payload: {
-    id: string;
-    title?: string;
-    content?: string;
-  }) => {
-    return mutation.mutate({
-      ...payload,
-      clientUpdatedAt: new Date().toISOString(),
-    });
+  // Добавляем поддержку стандартных TanStack опций вызова (onSuccess, onError)
+  const updateNote = (
+    payload: { id: string; title?: string; content?: string },
+    options?: { onSuccess?: (data: any) => void; onError?: (err: any) => void }
+  ) => {
+    return mutation.mutate(
+      {
+        ...payload,
+        clientUpdatedAt: new Date().toISOString(),
+      },
+      options
+    );
   };
 
   return { ...mutation, updateNote };

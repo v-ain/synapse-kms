@@ -1,101 +1,182 @@
-import { useState, useEffect } from 'react';
-import { useUpdateNote } from '@/hooks.js';
+import { useState, useEffect, useRef } from 'react';
+import { useUpdateNote } from '@/hooks';
 import { Textarea } from '@/components/ui/textarea';
-import { CloudCheck, Loader2, AlertCircle } from 'lucide-react';
+import { CloudCheck, Loader2, AlertCircle, PencilLine } from 'lucide-react';
 import type { Note } from '@synapse-kms/shared';
 
 interface EditorProps {
-  note: Note | null | undefined;
+  note: Note;
 }
 
-export const NoteEditor = ({ note }: EditorProps) => {
-  const [text, setText] = useState(note?.content || '');
-  const [error, setError] = useState<string | null>(null);
+type SyncStatus = 'saved' | 'dirty' | 'saving' | 'error';
 
-  // Достаем обернутый метод updateNote из нашего кастомного хука
+export const NoteEditor = ({ note }: EditorProps) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastSentTextRef = useRef(note.content || '');
+
+  // Страховочный реф для хранения актуального текста в памяти (спасает unmount в happy-dom/тестах)
+  const currentTextRef = useRef(note.content || '');
+
+  const debounceSaveRef = useRef<(text: string) => void>(() => {});
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Храним локальные статусы, которыми управляем вручную
+  const [localStatus, setLocalStatus] = useState<'saved' | 'dirty' | 'error'>(
+    'saved'
+  );
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Мгновенный счетчик слов для UI метаданных
+  const [wordCount, setWordCount] = useState(
+    () => (note.content || '').split(/\s+/).filter(Boolean).length
+  );
+
   const { updateNote, isPending } = useUpdateNote();
 
-  // Синхронизируем локальный стейт при переключении заметок
-  useEffect(() => {
-    if (note) {
-      setText(note.content);
-      setError(null);
+  // Если идет сетевой запрос, принудительно выставляем 'saving', иначе берем локальный стейт
+  const status: SyncStatus = isPending ? 'saving' : localStatus;
+
+  // Сетевая функция отправки
+  const executeNetworkSave = (currentText: string) => {
+    if (currentText.length > 5000 || currentText === lastSentTextRef.current) {
+      return;
     }
-  }, [note?.id, note?.content]);
 
-  // Эффект дебаунс-автосохранения контента
-  useEffect(() => {
-    if (!note || text === note.content) return;
+    lastSentTextRef.current = currentText;
 
-    const timer = setTimeout(() => {
-      // 🧬 Прямая и быстрая проверка лимита без оверхеда на Zod-парсинг полной схемы
-      // (Лимит в 5000 взят из вашей старой схемы валидации текста)
-      if (text.length > 5000) {
-        setError('CONTENT_TOO_LONG: Текст превышает лимит в 5000 символов');
-        return;
-      }
-
-      setError(null);
-
-      // Вызываем наш оптимизированный метод. Дата подмешается автоматически!
-      updateNote({
+    // Отправляем импульс в сеть и передаем колбэки для управления локальным статусом
+    updateNote(
+      {
         id: note.id,
-        content: text,
-      });
-    }, 1000);
+        content: currentText,
+      },
+      {
+        onSuccess: () => {
+          setLocalStatus('saved');
+          setErrorMsg(null);
+        },
+        onError: (err: any) => {
+          setLocalStatus('error');
+          setErrorMsg(
+            err?.message || 'Сеть недоступна. Буфер сохранен локально.'
+          );
+        },
+      }
+    );
+  };
 
-    return () => clearTimeout(timer);
-  }, [text, note?.id, note?.content]); // Больше никакой зависимости от версии!
+  // Инициализируем функцию дебаунса один раз при монтировании (Key гарантирует сброс при смене заметки)
+  useEffect(() => {
+    debounceSaveRef.current = (text: string) => {
+      if (timerRef.current) clearTimeout(timerRef.current);
 
-  if (!note) return null;
+      timerRef.current = setTimeout(() => {
+        executeNetworkSave(text);
+      }, 1000);
+    };
 
-  // Считаем слова на лету
-  const wordCount = text.split(/\s+/).filter(Boolean).length;
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [note.id]);
 
-  // Форматируем время сохранения для статус-бара
+  // Гарантия фиксации данных при размонтировании (берет данные строго из стабильной памяти рефа)
+  useEffect(() => {
+    return () => {
+      const finalText = currentTextRef.current;
+      if (finalText.length <= 5000 && finalText !== lastSentTextRef.current) {
+        executeNetworkSave(finalText);
+      }
+    };
+  }, [note.id]);
+
+  // onChange-координатор
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+
+    // Синхронизируем строковый реф для unmount-эффекта и blur
+    currentTextRef.current = val;
+
+    // Мгновенно пересчитываем слова для интерфейса
+    setWordCount(val.split(/\s+/).filter(Boolean).length);
+
+    // Вынесенная валидация лимита (блокирует сеть на лету)
+    if (val.length > 5000) {
+      setErrorMsg('Превышен лимит в 5000 символов');
+      setLocalStatus('error');
+      if (timerRef.current) clearTimeout(timerRef.current);
+      return;
+    }
+
+    if (errorMsg) setErrorMsg(null);
+
+    // Включаем статус изменения и вызываем дебаунс
+    setLocalStatus('dirty');
+    debounceSaveRef.current(val);
+  };
+
+  // Обработчик потери фокуса (сохраняем немедленно, минуя секундное ожидание)
+  const handleBlur = () => {
+    const val = currentTextRef.current;
+
+    if (val.length <= 5000 && val !== lastSentTextRef.current) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      executeNetworkSave(val);
+    }
+  };
+
   const lastSavedTime = note.clientUpdatedAt
     ? new Date(note.clientUpdatedAt).toLocaleTimeString()
     : '--:--:--';
 
   return (
     <div className="flex flex-col w-full space-y-2">
-      {/* РЕДАКТОР */}
+      {/* НЕКОНТРОЛИРУЕМЫЙ DOM-ИНПУТ С УЛЬТРА-СКОРОСТЬЮ ВВОДА */}
       <Textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
+        ref={textareaRef}
+        defaultValue={note.content || ''}
+        onChange={handleInputChange}
+        onBlur={handleBlur}
         placeholder="Начните писать ваши мысли здесь..."
         className={`w-full min-h-[300px] p-4 bg-slate-50/30 dark:bg-slate-900/30 border-slate-100 dark:border-slate-900 focus-visible:ring-1 font-mono text-sm leading-relaxed resize-y transition-colors ${
-          error
+          status === 'error'
             ? 'border-destructive focus-visible:ring-destructive dark:border-destructive'
             : 'focus-visible:ring-slate-300 dark:focus-visible:ring-slate-800'
         }`}
       />
 
-      {/* СТАТУС-БАР */}
+      {/* СТАТУС-БАР С ЧЕТКОЙ СТЕЙТ-МАШИНОЙ */}
       <div className="flex items-center justify-between px-3 py-1.5 rounded-md bg-slate-50 border border-slate-100 text-[11px] font-medium text-slate-500 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 select-none">
-        {/* Левая часть: Статус синхронизации или Ошибка валидации */}
         <div className="flex items-center gap-1.5">
-          {error ? (
+          {status === 'error' && (
             <div className="flex items-center gap-1 text-destructive font-semibold animate-in fade-in duration-150">
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>{error}</span>
+              <span>{errorMsg}</span>
             </div>
-          ) : isPending ? (
-            <>
+          )}
+
+          {status === 'dirty' && (
+            <div className="flex items-center gap-1 text-amber-600 dark:text-amber-500 animate-in fade-in duration-150">
+              <PencilLine className="h-3.5 w-3.5 shrink-0" />
+              <span>Есть несохраненные изменения</span>
+            </div>
+          )}
+
+          {status === 'saving' && (
+            <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300 font-semibold animate-pulse">
               <Loader2 className="h-3 w-3 animate-spin text-primary" />
-              <span className="text-slate-700 dark:text-slate-300 font-semibold animate-pulse">
-                Синхронизация синапса...
-              </span>
-            </>
-          ) : (
-            <>
-              <CloudCheck className="h-3 w-3 text-emerald-500" />
+              <span>Синхронизация синапса...</span>
+            </div>
+          )}
+
+          {status === 'saved' && (
+            <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-500 animate-in fade-in duration-150">
+              <CloudCheck className="h-3 w-3" />
               <span>Сохранено в KMS</span>
-            </>
+            </div>
           )}
         </div>
 
-        {/* Правая часть: Статистика заметки */}
         <div className="flex items-center gap-3 font-mono">
           <span>
             Слов:{' '}
@@ -105,7 +186,7 @@ export const NoteEditor = ({ note }: EditorProps) => {
           </span>
           <span className="text-slate-300 dark:text-slate-700">|</span>
           <span>
-            Сохранено:{' '}
+            Синхронизировано:{' '}
             <strong className="text-slate-700 dark:text-slate-300">
               {lastSavedTime}
             </strong>

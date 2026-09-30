@@ -56,6 +56,7 @@ export function NoteWorkspace({ noteId }: NoteWorkspaceProps) {
           <InlineTitleEditor
             noteId={fullNote.id}
             currentTitle={fullNote.title}
+            key={fullNote.id}
           />
 
           <Button
@@ -120,7 +121,7 @@ export function NoteWorkspace({ noteId }: NoteWorkspaceProps) {
       {/* ОБЛАСТЬ РЕДАКТОРА */}
       <div className="flex-1 overflow-y-auto min-h-0 -mx-2 px-2">
         <div className="space-y-4 pb-6 pr-2">
-          <NoteEditor note={fullNote} />
+          <NoteEditor note={fullNote} key={fullNote.id} />
         </div>
       </div>
     </div>
