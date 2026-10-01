@@ -1,5 +1,3 @@
-'use client';
-
 import * as React from 'react';
 import { cn } from '@/utils/utils';
 import { Dialog as SheetPrimitive } from 'radix-ui';

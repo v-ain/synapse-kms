@@ -14,6 +14,7 @@
     "dev": "concurrently -n \"server,client\" -c \"bgBlue,bgGreen\" \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "npm run dev --workspace=@synapse-kms/server",
     "dev:client": "npm run dev --workspace=@synapse-kms/client",
+    "test:client": "npm run test --workspace=apps/client",
     "build": "npm run build --workspace=@synapse-kms/shared && npm run build --workspace=@synapse-kms/trpc && npm run build --workspace=@synapse-kms/server && npm run build --workspace=@synapse-kms/client",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",

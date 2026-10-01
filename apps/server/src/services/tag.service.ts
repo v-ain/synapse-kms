@@ -3,10 +3,14 @@ import {
   notesTagsTable,
   Tag,
   AttachTagPayload,
+  notesTable,
+  TagWithCount,
 } from '@synapse-kms/shared';
 import { DrizzleDB } from 'src/db.js';
+import { eq, count } from 'drizzle-orm';
+import { ITagService } from '@synapse-kms/trpc';
 
-export class TagService {
+export class TagService implements ITagService {
   constructor(private db: DrizzleDB) {}
 
   // смарт-метод привязки тега
@@ -31,20 +35,31 @@ export class TagService {
     await this.db
       .insert(notesTagsTable)
       .values({
-        note_id: noteId,
-        tag_id: tag.id,
+        noteId: noteId,
+        tagId: tag.id,
       })
       .onConflictDoNothing();
 
     return { success: true, tag };
   }
 
-  // 🔥 Метод получения всех уникальных тегов пользователя (для бокового меню)
-  // Соединяем заметки пользователя с тегами через мост
-  async getUserTags(userId: string) {
-    // Здесь будет SQL-запрос с JOIN, который выберет все теги,
-    // привязанные к заметкам текущего пользователя (userId)
-    // Пока оставим заглушку, чтобы запустить базовую привязку
-    return [];
+  // Метод получения всех уникальных тегов пользователя со счётчиком заметок
+  async getUserTags(userId: string): Promise<TagWithCount[]> {
+    const result = await this.db
+      .select({
+        id: tagsTable.id,
+        name: tagsTable.name,
+        notesCount: count(notesTagsTable.noteId),
+      })
+      .from(tagsTable)
+      .innerJoin(notesTagsTable, eq(tagsTable.id, notesTagsTable.tagId))
+      .innerJoin(notesTable, eq(notesTagsTable.noteId, notesTable.id))
+      .where(eq(notesTable.userId, userId))
+      .groupBy(tagsTable.id, tagsTable.name);
+
+    return result.map((item) => ({
+      ...item,
+      notesCount: Number(item.notesCount),
+    }));
   }
 }

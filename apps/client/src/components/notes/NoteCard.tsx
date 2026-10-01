@@ -1,13 +1,8 @@
 import { Checkbox } from '@/components/ui/checkbox';
+import type { NotePreview } from '@synapse-kms/shared';
 
 interface NoteCardProps {
-  note: {
-    id: string;
-    title: string;
-    version: number;
-    preview: string | null;
-    tags: string[] | null;
-  };
+  note: NotePreview;
   isActive: boolean;
   isSelected: boolean;
   onSelectClick: () => void;

@@ -6,7 +6,11 @@ export const tagsRouter = router({
   attach: protectedProcedure
     .input(AttachTagSchema)
     .mutation(async ({ input, ctx }) => {
-      // Вызываем наш только что созданный сервис!
       return await ctx.tagService.attachTag(input, ctx.userId);
     }),
+
+  // Эндпоинт получения всех тегов пользователя для Сайдбара
+  list: protectedProcedure.query(async ({ ctx }) => {
+    return await ctx.tagService.getUserTags(ctx.userId);
+  }),
 });

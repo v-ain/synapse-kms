@@ -2,12 +2,14 @@ import type {
   AttachTagPayload,
   BulkMovePayload,
   CreateNotePayload,
+  DeleteFolderPayload,
   Folder,
   GetNotesQueryParams,
   Note,
   NotePreview,
   PaginatedResponse,
   Tag,
+  TagWithCount,
   UpdateNotePayload,
 } from '@synapse-kms/shared';
 
@@ -33,10 +35,7 @@ export interface INoteService {
   /**
    * Обновление данных заметки с проверкой версии (Optimistic Lock)
    */
-  updateNote(
-    payload: UpdateNotePayload,
-    userId: string
-  ): Promise<{ conflict: true; note: null } | { conflict: false; note: Note }>;
+  updateNote(payload: UpdateNotePayload, userId: string): Promise<Note | null>;
 
   /**
    * Архивация заметки
@@ -50,12 +49,12 @@ export interface INoteService {
   >;
 
   /**
-   * Массовое перемещение заметок с флагом оптимистичной блокировки
+   * Массовое перемещение заметок с атомарной защитой Last-Write-Wins (LWW)
    */
   bulkMove(
     payload: BulkMovePayload,
     userId: string
-  ): Promise<{ success: boolean; conflict?: boolean }>;
+  ): Promise<{ success: boolean; movedIds: string[] }>;
 }
 
 export interface IFolderService {
@@ -70,15 +69,10 @@ export interface IFolderService {
   createFolder(title: string, userId: string): Promise<Folder>;
 
   /**
-   * Безопасное удаление папки (Soft delete)
+   * Безопасное удаление папки (Soft delete) с освобождением заметок по LWW
+   * Возвращает true, если папка успешно удалена, либо false, если она не найдена/удалена ранее
    */
-  deleteFolder(
-    id: string,
-    userId: string
-  ): Promise<
-    | { error: string; status: number; success?: never }
-    | { error: null; success: true; status?: never }
-  >;
+  deleteFolder(payload: DeleteFolderPayload, userId: string): Promise<boolean>;
 }
 
 export interface IAuthService {
@@ -90,7 +84,7 @@ export interface ITagService {
     payload: AttachTagPayload,
     userId: string
   ): Promise<{ success: true; tag: Tag }>;
-  getUserTags(userId: string): Promise<any>;
+  getUserTags(userId: string): Promise<TagWithCount[]>;
 }
 
 export interface IAdminService {

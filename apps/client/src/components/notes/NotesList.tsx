@@ -1,12 +1,19 @@
-import { useUIStore } from '../store';
-import { useNotes, useFolders } from '../hooks';
+import { useUIStore } from '@/store';
+import { useNotes, useFolders } from '@/hooks';
 import { SearchBar } from './SearchBar';
 import { NoteCard } from './NoteCard';
 import { CreateNoteForm } from './CreateNoteForm';
 import { BulkActionsPanel } from './BulkActionsPanel';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { FileText, FolderOpen, Inbox, Layers, Loader2 } from 'lucide-react';
+import {
+  FileText,
+  FolderOpen,
+  Inbox,
+  Layers,
+  Loader2,
+  TagIcon,
+} from 'lucide-react';
 
 export function NotesList() {
   const {
@@ -16,6 +23,7 @@ export function NotesList() {
     setActiveNote,
     selectedNoteIds,
     toggleSelectNote,
+    activeTagName,
   } = useUIStore();
 
   const {
@@ -65,6 +73,19 @@ export function NotesList() {
                 <span className="text-slate-800 dark:text-slate-200 font-bold">
                   {folders?.find((f) => f.id === activeFolderId)?.title ||
                     '...'}
+                </span>
+              </h4>
+            </>
+          )}
+
+          {/* Статус фильтрации по хэштегу */}
+          {activeFilter === 'tag' && (
+            <>
+              <TagIcon className="h-4 w-4 text-slate-400 dark:text-slate-500 shrink-0" />
+              <h4 className="text-xs font-semibold uppercase tracking-wider truncate">
+                Тег:{' '}
+                <span className="text-slate-800 dark:text-slate-200 font-bold">
+                  #{activeTagName}
                 </span>
               </h4>
             </>

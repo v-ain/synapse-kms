@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
 import { foldersTable, notesTable, tagsTable } from './db-schema.js';
+import { NOTE_LIMITS } from './constants.js';
 
 export type Note = InferSelectModel<typeof notesTable> & {
   preview?: string;
@@ -10,7 +11,7 @@ export type Note = InferSelectModel<typeof notesTable> & {
 // Превью тоже автоматически использует string для дат
 export type NotePreview = Omit<
   Note,
-  'content' | 'is_deleted' | 'user_id' | 'preview' | 'tags'
+  'content' | 'isDeleted' | 'userId' | 'preview' | 'tags'
 > & {
   preview: string;
   tags: string[];
@@ -37,17 +38,23 @@ export const CreateFolderSchema = z.object({
 // Схема для удаления папки
 export const DeleteFolderSchema = z.object({
   id: z.string().uuid({ message: 'Некорректный формат ID папки' }),
+  clientUpdatedAt: z.string().datetime({ offset: true }),
 });
 
 // Экспортируем типы инференса для использования в контрактах сервисов
 export type CreateFolderInput = z.infer<typeof CreateFolderSchema>;
-export type DeleteFolderInput = z.infer<typeof DeleteFolderSchema>;
+export type DeleteFolderPayload = z.infer<typeof DeleteFolderSchema>;
 
 // ==========================================
 // ДОМЕННЫЕ ТИПЫ (Авто-вывод из базы данных)
 // ==========================================
 
 export type Tag = InferSelectModel<typeof tagsTable>;
+
+// Создаем расширенный UI/DTO тип: берем все поля Tag и подмешиваем notes_count
+export interface TagWithCount extends Tag {
+  notesCount: number;
+}
 
 // ==========================================
 // СХЕМЫ ВАЛИДАЦИИ И PAYLOADS (Zod)
@@ -70,57 +77,80 @@ export type AttachTagPayload = z.infer<typeof AttachTagSchema>;
 
 export interface PaginatedResponse<T> {
   items: T[];
-  next_cursor: string | null; // Передаем таймстемп последней заметки в формате ISO строки
-  has_more: boolean;
+  nextCursor: string | null; // Передаем таймстемп последней заметки в формате ISO строки
+  hasMore: boolean;
 }
 
 // СХЕМЫ ВАЛИДАЦИИ ZOD (Enterprise-слой)
-
+// packages/shared/src/schemas/notes.ts
 // Схема создания заметки
 export const CreateNoteSchema = z.object({
   title: z
     .string()
-    .min(1)
-    .max(100)
+    .min(NOTE_LIMITS.TITLE_MIN, 'TITLE_EMPTY')
+    .max(NOTE_LIMITS.TITLE_MAX, 'TITLE_TOO_LONG')
     .transform((val) => val.trim()),
-  content: z.string().default(''),
-  folder_id: z.string().uuid().nullable(),
+  content: z
+    .string()
+    .max(NOTE_LIMITS.CONTENT_MAX, 'CONTENT_TOO_LONG')
+    .default(''),
+  folderId: z.string().uuid().nullable(),
 });
 
-// Пример правильной Zod-схемы для апдейта заметки
+// Zod-схемы для апдейта заметки
 export const UpdateNotePayloadSchema = z.object({
   id: z.string().uuid(),
-  version: z.number().int(),
-  title: z.string().optional(),
-  content: z.string().optional(),
+  // Заменяем version на обязательную ISO-строку даты изменения
+  clientUpdatedAt: z.string().datetime({ offset: true }),
+  title: z
+    .string()
+    .min(NOTE_LIMITS.TITLE_MIN, 'TITLE_EMPTY')
+    .max(NOTE_LIMITS.TITLE_MAX, 'TITLE_TOO_LONG')
+    .optional(),
+  content: z
+    .string()
+    .max(NOTE_LIMITS.CONTENT_MAX, 'CONTENT_TOO_LONG')
+    .optional(),
 });
 
 // Тип автоматически выведется правильно:
 export type UpdateNotePayload = z.infer<typeof UpdateNotePayloadSchema>;
 
 // Схема пакетного перемещения заметок
-export const BulkMoveSchema = z.object({
+export const BulkMovePayloadSchema = z.object({
   items: z
-    .array(z.object({ id: z.string().uuid(), version: z.number().int() }))
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        clientUpdatedAt: z.string().datetime({ offset: true }),
+      })
+    )
     .min(1),
-  target_folder_id: z.string().uuid().nullable(),
+  targetFolderId: z.string().uuid().nullable(),
 });
 
 // TS-типы строятся по схемам валидации!
 export type CreateNotePayload = z.infer<typeof CreateNoteSchema>;
-export type BulkMovePayload = z.infer<typeof BulkMoveSchema>;
+export type BulkMovePayload = z.infer<typeof BulkMovePayloadSchema>;
 
 // Описываем допустимые значения для фильтра
-export const notesFilterSchema = z.enum(['all', 'inbox', 'archive', 'folder']);
+export const notesFilterSchema = z.enum([
+  'all',
+  'inbox',
+  'archive',
+  'folder',
+  'tag',
+]);
 export type NotesFilter = z.infer<typeof notesFilterSchema>;
 
 // 🛡️ Живая Zod-схема для валидации параметров запроса
 export const getNotesQueryParamsSchema = z.object({
-  folder_id: z.string().uuid().optional(),
+  folderId: z.string().uuid().optional(),
   filter: notesFilterSchema.optional(),
   limit: z.string().optional(),
   cursor: z.string().optional(),
   search: z.string().optional(),
+  tagName: z.string().optional(),
   // cursor: z.string().nullish(), // Обязательно nullish или optional!
 });
 

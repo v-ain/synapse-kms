@@ -7,47 +7,39 @@ export function useFolders() {
 }
 
 export function useNotes() {
-  const { activeFilter, activeFolderId, searchQuery } = useUIStore();
+  const { activeFilter, activeFolderId, activeTagName, searchQuery } =
+    useUIStore();
+
+  // Формируем query-параметры строго по getNotesQueryParamsSchema контракту бэкенда
+  const folderId =
+    activeFilter === 'folder' ? (activeFolderId ?? undefined) : undefined;
+  const tagName =
+    activeFilter === 'tag' ? (activeTagName ?? undefined) : undefined;
 
   return trpc.notes.getNotes.useInfiniteQuery(
     {
-      filter: activeFilter,
-      folder_id: activeFolderId || undefined,
-      limit: '20',
-      search: searchQuery || undefined, // 🔍 Передаем поиск в tRPC!
+      filter: activeFilter, // отправляем 'all' | 'inbox' | 'folder' | 'tag'
+      folderId,
+      tagName,
+      search: searchQuery,
+      limit: '20', // tRPC ждет string по схеме бэкенда
     },
     {
-      initialCursor: undefined,
-      getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
+      getNextPageParam: (lastPage) => lastPage.nextCursor,
     }
   );
 }
 
-export function useAdminNotes() {
-  const { activeFilter, activeFolderId, searchQuery } = useUIStore();
-
-  return trpc.admin.getNotes.useInfiniteQuery(
-    {
-      filter: activeFilter,
-      folder_id: activeFolderId || undefined,
-      limit: '20',
-      search: searchQuery || undefined, // 🔍 Передаем поиск в tRPC!
-    },
-    {
-      initialCursor: undefined,
-      getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
-    }
-  );
-}
-
-// Точечный хук для вытягивания ПОЛНОГО контента заметки по UUID
-export function useNote(id: string | undefined) {
+/**
+ * Точечный хук для вытягивания ПОЛНОГО контента заметки по UUID.
+ * Гарантированно принимает валидный строковый ID из рабочей области.
+ */
+export function useNote(id: string) {
   return trpc.notes.getById.useQuery(
-    { id: id! },
+    { id }, // Чистая передача без id! или хаков типизации
     {
-      // Маленькая оптимизация: не делать запрос, если ID еще не выделился в интерфейсе
-      enabled: typeof id === 'string' && id.length > 0,
-      // Заметка обычно открывается на чтение/редактирование, кэш можно держать подольше
+      // Заметка обычно открывается на длительное редактирование,
+      // кэш можно спокойно держать подольше (микросекундная эффективность)
       staleTime: 1000 * 60 * 5,
     }
   );
@@ -83,45 +75,72 @@ export function useCreateNote() {
   });
 }
 
-// Мутация пакетного перемещения с контролем версий
 export function useBulkMoveNotes() {
   const utils = trpc.useUtils();
 
-  return trpc.notes.bulkMove.useMutation({
-    // При успехе сносим кэш папок (счетчики) и кэш заметок (лента)
-    onSuccess: () => {
+  const mutation = trpc.notes.bulkMove.useMutation({
+    onSuccess: (result) => {
       utils.folders.getFolders.invalidate();
-      utils.notes.getNotes.invalidate(); // Сбросит ВСЕ вкладки разом через tRPC!
-    },
-    // Ловим наш оптимистичный замок 409 (в tRPC это CONFLICT)
-    onError: (error) => {
-      if (error.data?.code === 'CONFLICT') {
-        alert(
-          '💥 Ошибка конкуренции! Одна из заметок уже была перемещена или изменена. Лента сейчас обновится.'
+      utils.notes.getNotes.invalidate();
+
+      if (result.movedIds.length === 0) {
+        console.warn(
+          'Ни одна из заметок не была перемещена, так как данные в базе новее.'
         );
-        utils.notes.getNotes.invalidate();
-      } else {
-        alert(error.message || 'Что-то пошло не так при перемещении...');
       }
     },
+    onError: (error) => {
+      alert(error.message || 'Что-то пошло не так при перемещении...');
+    },
   });
+
+  // Добавляем второй опциональный аргумент для колбэков типа onSuccess
+  const bulkMove = (
+    payload: { targetFolderId: string | null; ids: string[] },
+    options?: any // Или точный тип опций, если tRPC его экспортирует
+  ) => {
+    const clientUpdatedAt = new Date().toISOString();
+
+    return mutation.mutate(
+      {
+        targetFolderId: payload.targetFolderId,
+        items: payload.ids.map((id) => ({
+          id,
+          clientUpdatedAt,
+        })),
+      },
+      options // Пробрасываем опции (onSuccess, onError) дальше в мутацию
+    );
+  };
+
+  return { ...mutation, bulkMove };
 }
 
-// Хук удаления папки
+// 📂 2. ХУК УДАЛЕНИЯ ПАПКИ (LWW)
 export function useDeleteFolder() {
   const utils = trpc.useUtils();
   const { setActiveFolder } = useUIStore();
 
-  return trpc.folders.delete.useMutation({
+  const mutation = trpc.folders.delete.useMutation({
     onSuccess: () => {
-      // Сбрасываем активную папку в Zustand, чтобы интерфейс не смотрел на удаленную сущность
+      // Сбрасываем активную папку, чтобы не смотреть на удаленную сущность
       setActiveFolder(null);
       utils.folders.getFolders.invalidate();
-      // Опционально: если при удалении папки заметки из неё падают в 'inbox',
-      // можно также инвалидировать и списки заметок:
-      utils.notes.getNotes.invalidate();
+      utils.notes.getNotes.invalidate(); // Заметки выпали во Входящие
+    },
+    onError: (error) => {
+      alert(error.message || 'Не удалось удалить папку.');
     },
   });
+
+  const deleteFolder = (id: string) => {
+    return mutation.mutate({
+      id,
+      clientUpdatedAt: new Date().toISOString(), // Фиксируем точное время удаления папки
+    });
+  };
+
+  return { ...mutation, deleteFolder };
 }
 
 // Мутация мягкого удаления (архивации) ОДНОЙ заметки
@@ -145,7 +164,7 @@ export function useAttachTag() {
     onSuccess: (_data, variables) => {
       // Обновляем ленту заметок (чтобы тег появился на превью)
       utils.notes.getNotes.invalidate();
-
+      utils.tags.list.invalidate();
       // Обновляем контент текущей открытой заметки
       if (variables) {
         utils.notes.getById.invalidate({ id: variables.noteId });
@@ -157,24 +176,43 @@ export function useAttachTag() {
   });
 }
 
+// 3. ХУК ОБНОВЛЕНИЯ ЗАМЕТКИ (LWW)
 export function useUpdateNote() {
   const utils = trpc.useUtils();
 
-  return trpc.notes.update.useMutation({
-    onSuccess: (updatedNote) => {
-      // 🪄 Тчечно обновляем кэш конкретно этой заметки, чтобы зафиксировать новую версию
-      utils.notes.getById.setData({ id: updatedNote.id }, updatedNote);
+  const mutation = trpc.notes.update.useMutation({
+    // Включаем безопасные LWW-ретраи для отказоустойчивости при моргании сети
+    retry: 3,
+    retryDelay: (attempt) => Math.min(attempt * 1000, 5000),
 
-      // Мягко уведомляем списки заметок, что данные освежились (без жесткого рефетча посреди ввода)
+    onSuccess: (updatedNote) => {
+      // Точечно синхронизируем кэш конкретной заметки
+      utils.notes.getById.setData({ id: updatedNote.id }, updatedNote);
+      // Мягко уведомляем списки без жесткого рефетча посреди ввода
       utils.notes.getNotes.invalidate();
     },
     onError: (error) => {
-      if (error.data?.code === 'CONFLICT') {
-        console.error(
-          '⚠️ Оптимистичный замок: сохранение отклонено, данные устарели.'
-        );
-        // Здесь можно показать неагрессивный варнинг в статус-баре в стиле ranger
-      }
+      console.error('Ошибка сохранения заметки:', error.message);
     },
   });
+
+  // Добавляем поддержку стандартных TanStack опций вызова (onSuccess, onError)
+  const updateNote = (
+    payload: { id: string; title?: string; content?: string },
+    options?: { onSuccess?: (data: any) => void; onError?: (err: any) => void }
+  ) => {
+    return mutation.mutate(
+      {
+        ...payload,
+        clientUpdatedAt: new Date().toISOString(),
+      },
+      options
+    );
+  };
+
+  return { ...mutation, updateNote };
+}
+
+export function useTags() {
+  return trpc.tags.list.useQuery();
 }

@@ -52,7 +52,7 @@ export class AuthService {
 
     if (!user) return null;
 
-    const isPasswordValid = this.verifyPassword(password, user.password_hash);
+    const isPasswordValid = this.verifyPassword(password, user.passwordHash);
     if (!isPasswordValid) return null;
 
     return user;
@@ -66,7 +66,7 @@ export class AuthService {
       .insert(usersTable)
       .values({
         email: email.trim().toLowerCase(),
-        password_hash: passwordHash,
+        passwordHash: passwordHash,
       })
       .returning();
 

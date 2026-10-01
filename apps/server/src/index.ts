@@ -1,7 +1,6 @@
 import Fastify, { FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
 import { db } from './db.js';
-import { ZodError } from 'zod';
 import { FolderService } from './services/folder.service.js';
 import { NoteService } from './services/note.service.js';
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
@@ -13,35 +12,8 @@ import { AdminService } from './services/admin.service.js';
 
 const fastify = Fastify({ logger: true });
 
-// Расширяем типы Fastify, чтобы TypeScript знал про наше новое поле в request
-declare module 'fastify' {
-  interface FastifyRequest {
-    userId: string;
-  }
-}
-
 const noteService = new NoteService(db);
 const folderService = new FolderService(db);
-
-// ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК ВАЛИДАЦИИ
-fastify.setErrorHandler((error, request, reply) => {
-  if (error instanceof ZodError) {
-    // Если ошибку выкинул Zod — отдаем честный 400 Bad Request
-    return reply.status(400).send({
-      statusCode: 400,
-      error: 'Bad Request',
-      message: 'Ошибка валидации входящих данных',
-      // Разворачиваем подробный список: какое именно поле и почему не прошло проверку
-      issues: error.errors.map((err) => ({
-        field: err.path.join('.'),
-        issue: err.message,
-      })),
-    });
-  }
-
-  // Для всех остальных системных ошибок оставляем дефолтное поведение
-  reply.send(error);
-});
 
 await fastify.register(fastifyCookie, {
   secret: process.env.COOKIE_SECRET || 'my-cookie-secret-key-change-me', // для подписи кук при необходимости

@@ -17,15 +17,15 @@ export const foldersRouter = router({
 
   // 3. Безопасное удаление папки
   delete: protectedProcedure
-    .input(DeleteFolderSchema) // Используем общую схему
+    .input(DeleteFolderSchema)
     .mutation(async ({ input, ctx }) => {
-      const result = await ctx.folderService.deleteFolder(input.id, ctx.userId);
+      const success = await ctx.folderService.deleteFolder(input, ctx.userId);
 
-      // сужение типа
-      if (result.error !== null) {
+      // Если папка не существовала или уже была удалена
+      if (!success) {
         throw new TRPCError({
-          code: result.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST',
-          message: result.error,
+          code: 'NOT_FOUND',
+          message: 'Папка не найдена или уже была удалена',
         });
       }
 

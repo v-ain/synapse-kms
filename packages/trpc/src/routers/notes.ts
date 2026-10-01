@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 // Импортируем Zod-схему, которую вы создали ранее в shared
 import {
-  BulkMoveSchema,
+  BulkMovePayloadSchema,
   CreateNoteSchema,
   getNotesQueryParamsSchema,
   UpdateNotePayloadSchema,
@@ -69,22 +69,18 @@ export const notesRouter = router({
       return { success: true };
     }),
 
-  // Пакетное перемещение заметок с оптимистичным замком
+  // Пакетное перемещение заметок с атомарным разрешением гонок (LWW)
   bulkMove: protectedProcedure
-    .input(BulkMoveSchema)
+    .input(BulkMovePayloadSchema)
     .mutation(async ({ input, ctx }) => {
+      // Сервис сам обработает сетевые гонки для каждой заметки отдельно
       const result = await ctx.noteService.bulkMove(input, ctx.userId);
 
-      // Если сервис сообщил о конфликте версий данных в базе
-      if (result.conflict) {
-        throw new TRPCError({
-          code: 'CONFLICT',
-          message:
-            'Конфликт версий! Данные некоторых заметок были изменены в другом окне.',
-        });
-      }
-
-      return { success: true };
+      // Возвращаем фронтенду флаг успеха и массив ID перемещенных заметок
+      return {
+        success: result.success,
+        movedIds: result.movedIds,
+      };
     }),
 
   // 💾 Атомарное обновление контента с проверкой версии
@@ -92,15 +88,15 @@ export const notesRouter = router({
     .input(UpdateNotePayloadSchema)
     .mutation(async ({ input, ctx }) => {
       // Вызываем метод сервиса, который проверяет версию в БД перед UPDATE
-      const result = await ctx.noteService.updateNote(input, ctx.userId);
+      const note = await ctx.noteService.updateNote(input, ctx.userId);
 
-      if (result.conflict) {
+      if (!note) {
         throw new TRPCError({
-          code: 'CONFLICT',
-          message: 'Конфликт версий! Заметка была изменена в другом месте.',
+          code: 'NOT_FOUND',
+          message: 'Заметка не найдена или у вас нет прав',
         });
       }
 
-      return result.note!; // возвращаем обновленную заметку (включая новую версию!)
+      return note;
     }),
 });
