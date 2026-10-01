@@ -1,98 +1,133 @@
-### Synapse KMS (Knowledge Management System)
+# 🧠 Synapse KMS (Knowledge Management System)
 
-High-performance, enterprise-grade distributed knowledge management ecosystem built with a focus on strict low-level resource management, predictable data constraints, and high-concurrency architecture. 
+High-performance, distributed knowledge management ecosystem.
 
-### 🧠 Architectural Philosophy
+### 🚀 Architectural Philosophy
 
-`synapse-kms` targets optimal hardware utilization and microsecond-level runtime efficiency. The project intentionally eliminates redundant runtime abstractions in favor of direct, observable control over operating system processes, network sockets, and data persistence layers. 
+`synapse-kms` targets optimal hardware utilization and microsecond-level runtime efficiency. The project intentionally eliminates redundant runtime abstractions in favor of direct, observable control over operating system processes, network sockets, and data persistence layers. 
 
-### 🛠 Tech Stack (Production-Ready)
+This production-ready monorepo is built for maximum performance, strict type-safety, and independent deployment. It bypasses the overhead of heavy frameworks like Next.js/Nest.js in favor of a lightning-fast **Fastify** backend and a clean **React SPA** powered by **TanStack Query**.
 
-* **Backend:** Node.js Core, Fastify (TypeScript), Zod Validation, postgres native TCP driver.
-* **Database:** PostgreSQL (with explicit strict normal forms, composite indexing, and transactional integrity).
-* **Frontend:** React 19, TypeScript, TanStack Query (Server-state caching), Zustand (Ephemeric client UI state), SCSS Modules.
-* **Infrastructure:** Docker, Docker Compose (multi-stage builds), Linux (Fedora Core CLI development), Bash scripting.
+---
 
-### 💾 Database Schema & Boundary Constraints
+## 🛠️ Tech Stack
 
-### Data Layout Configuration
+- **Monorepo Architecture:** `npm workspaces` (No Turborepo/Nx overhead)
+- **Backend:** [Fastify](https://fastify.dev) (High-performance Node.js framework)
+- **Frontend:** [React](https://react.dev) + [TanStack Query](https://tanstack.com) (Lean Single Page Application)
+- **API Layer:** [tRPC](https://trpc.io) + [Zod](https://zod.dev) (End-to-End type-safety without code generation)
+- **Database & ORM:** [PostgreSQL](https://postgresql.org) + [Drizzle ORM](https://drizzle.team)
 
-The system relies exclusively on fully randomized **UUIDv4** keys to decouple database exposure from sequential predictable vulnerabilities (IDOR). 
+---
 
-```sql
+## 🏗️ Architecture & Package Breakdown
 
--- Conceptual DDL Manifest
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+The project is structured to keep strict separation of concerns while maintaining seamless type synchronization between client and server via **TS Path Aliases** (zero manual build steps required during dev mode).
 
-CREATE TABLE folders (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title VARCHAR(100) NOT NULL,
-    notes_count INT DEFAULT 0, -- Atomic flat counter for O(1) visibility optimization
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+```text
+├── apps/
+│   ├── client/          # React SPA (Vite, pure TS/JS, no UI-library locks)
+│   └── server/          # Fastify App (Node.js backend, tRPC plugin runner)
+├── packages/
+│   ├── shared/          # Shared types, Zod schemas, schema definitions (The Core)
+│   ├── trpc/            # Pure tRPC Routers
+│   └── db-scripts/      # Drizzle ORM setup,  and PG pool instance
+├── docker-compose.yml
+└── package.json
+```
 
-CREATE TABLE notes (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    folder_id UUID REFERENCES folders(id) ON DELETE SET NULL, -- Soft detachment strategy
-    title VARCHAR(255) NOT NULL,
-    content TEXT,
-    version INT DEFAULT 1, -- Optimistic concurrency control layer
-    is_archived BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+### ⚡ Key Architectural Features
 
-CREATE TABLE tags (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(50) NOT NULL,
-    CONSTRAINT unique_user_tag UNIQUE (user_id, name)
-);
+1. **End-to-End Type-Safety:** Any change in the database schema or Zod validators instantly updates the frontend autocomplete and throws compile-time errors in React components if mismatched.
+2. **Optimized Serialization:** Solved the common tRPC/Drizzle type-degradation issue with JavaScript `Date` objects by utilizing Drizzle's `timestamp(..., { mode: 'string' })`. This keeps the data transport lightweight, shifts validation to Zod (`z.string().datetime()`), and speeds up server responses by avoiding CPU-heavy Date parsing.
+3. **High-Performance UI Rendering:** Heavy text editing components are engineered around native DOM nodes (`defaultValue`) and memory-backed refs. This isolates continuous typing inputs from React's VDOM, completely eliminating interface lag on large-scale notes.
+4. **Independent Deployment:** The backend (`apps/server`) can be easily containerized via Docker and deployed to any VPS, while the frontend (`apps/client`) can be shipped to cheap static hosting (S3, Vercel, Netlify).
 
-CREATE TABLE notes_tags (
-    note_id UUID REFERENCES notes(id) ON DELETE CASCADE,
-    tag_id UUID REFERENCES tags(id) ON DELETE CASCADE,
-    PRIMARY KEY (note_id, tag_id) -- Auto-generated composite B-Tree Index
-);
+---
+
+## 🔄 Concurrency & Concurrency Control (v0.5.0)
+
+Synapse KMS utilizes a lock-free **Last-Write-Wins (LWW)** conflict resolution strategy backed by microsecond-precision client timestamps, replacing fragile sequential version-increment checks.
+
+```text
+┌────────────────────────┐         tRPC Mutation          ┌────────────────────────┐
+│  Client (NoteEditor)   │ ─────────────────────────────> │   Postgres Database    │
+│  [currentTextRef] LWW  │ <───────────────────────────── │ client_updated_at Check│
+└────────────────────────┘    Atomic SQL Confirmation     └────────────────────────┘
+```
+
+- **Derived Sync States:** The client architecture leverages a strict state machine (`saved` | `dirty` | `saving` | `error`) computed on the fly to provide instant layout updates without cascading VDOM re-renders.
+- **Atomic SQL Enforcement:** Database updates perform conditional downstream writes (`lt(notesTable.clientUpdatedAt, payload.clientUpdatedAt)`), ensuring out-of-order network packets never corrupt the knowledge graph.
+- **Resilient Synapses:** Mutation bindings include built-in network retries with exponential backoff, making text synchronization immune to short-term connection drops.
+
+---
+## 🚀 Quick Start & Development Guide
+
+### Prerequisites
+Ensure you have the following installed on your host machine:
+* **Node.js** (v20+ recommended)
+* **npm** (v10+ with native workspaces support)
+* **Docker** or **Podman** (with `docker-compose` plugin)
 
 
-### Highload Query Optimization Design
+### 1. Environment Configuration
+The monorepo shares environments via localized `.env` definitions. Copy the example templates in the root directory:
 
-* **One-to-Many Relationships:** Handled via deterministic references with `ON DELETE SET NULL` for clean folder-to-inbox automatic entity routing.
-* **Many-to-Many Connections:** Structured via strict isolated Junction Table (`notes_tags`) mapping complex network structures with execution speeds scaling gracefully at 𝑂(log𝑁) via balanced B-Tree primary indexing.
-* **Partial Functional Indexing:** `CREATE INDEX idx_notes_folder_id ON notes(folder_id) WHERE is_archived = FALSE;`
-Ensures storage overhead optimization by restricting indexing structures from tracking inactive/dead rows.
+```bash
+# Copy and configure environment variables
+cp .env.example .env
+```
+
+### 2. Infrastructure Setup (Database)
+Spin up the isolated PostgreSQL container using your container runtime engine:
+
+```bash
+# Start PostgreSQL via Docker Compose
+docker compose up -d
+```
+
+### 3. Dependency Installation & Migrations
+Install all monorepo dependencies at once using native npm workspaces. The system will automatically map local package path aliases without external build tooling.
+
+```bash
+# Install everything from the root directory
+npm install
+
+# Runs existing SQL migrations
+npm run db:migrate
+```
+
+### 4. Running the Application
+Launch both the Fastify backend and the React Vite SPA concurrently under a unified terminal stream:
+
+```bash
+# Starts apps/server and apps/client simultaneously in development mode
+npm run dev
+```
+
+* **Frontend SPA** will be accessible at: `http://localhost:5173`
+* **tRPC/Fastify API** runner will listen at: `http://localhost:3037`
+
+### 5. Executing the Test Suite
+Run the high-performance Vitest integration suite running over the lightweight `happy-dom` isolation layer:
+
+```bash
+# Run all workspace test specifications
+npm run test
+```
 
 ### ⚡ Concurrency & Network Streaming Physics
 
-### Read-Modify-Write Mitigation
+#### Read-Modify-Write Mitigation (LWW Conflict Resolution)
+To achieve extreme RPS (Requests Per Second) throughput without bottlenecking database threads with blocking heavy raw locks (`FOR UPDATE`), the system implements a lock-free **Last-Write-Wins (LWW)** methodology. 
+Mutations evaluate concurrent mutations on ingestion using microsecond-precision client timestamps (`client_updated_at`). Atomic database writes execution checks are performed downstream (`lt(notesTable.clientUpdatedAt, payload.clientUpdatedAt)`), ensuring out-of-order network packets never corrupt or rollback more recent knowledge definitions.
 
-To achieve high RPS (Requests Per Second) limits without bottlenecking hardware threads with blocking heavy locks (`FOR UPDATE`), the system implements **Optimistic Concurrency Control (OCC)**.
-Mutations evaluate explicit states during ingestion: 
-
-```sql
-
-UPDATE notes SET title = $1, version = version + 1 WHERE id = $2 AND version = $3;
-```
-
-If `affectedRows === 0`, runtime captures conflicts gracefully without stalling pool connections at the Linux process level. 
-
-### Buffer Streaming & Network Slices
-
-The Node.js networking subsystem (`net.Socket`) fetches chunks aligned to operating system packets (MTU limits ~1.5 KB to 64 KB buffers). The underlying native TCP driver maps data streams precisely against PostgreSQL backend binary protocol markers (`DataRow` headers + message length specifications).
-This enables true server-side memory profiling boundaries: 
+#### Buffer Streaming & Network Slices
+The Node.js networking subsystem (`net.Socket`) fetches chunks aligned to operating system packets (MTU limits ~1.5 KB to 64 KB buffers). The underlying native TCP driver maps data streams precisely against PostgreSQL backend binary protocol markers (DataRow headers + message length specifications). This enables true server-side memory profiling boundaries: 
 
 * **Lazy List Loading:** Fetches descriptive items omitting note body properties. 50-row batch payloads scale at a lightweight ~75 KB threshold.
-* **Targeted Document Parsing:** Resolves massive data structures (restricted up to a strict 5,000 UTF-16 character limit — ~10 KB memory space per active note body) over explicit 𝑂(log𝑁) index evaluation trees.
+* **Targeted Document Parsing:** Resolves massive data structures (restricted up to a strict 5,000 UTF-16 character limit — ~10 KB memory space per active note body) over explicit \(O(\log N)\) index evaluation trees.
 
-### 🎨 Client State Separation Architecture
-
-1. **TanStack Query (Server State Cache):** Handles all asynchronous I/O with automatic Garbage Collection thresholds (`gcTime`), maintaining atomic client-side hash maps of server conditions. It enforces lazy fetching and automatic cache invalidation during state mutation.
-2. **Zustand (Client Interface Coordinates):** Dedicated exclusively to temporary layout configurations (e.g., active theme states like `Tokyo Night` or navigation toggle markers), entirely separate from remote persistent definitions.
+#### 🎨 Client State Separation Architecture
+* **TanStack Query (Server State Cache):** Handles all asynchronous I/O with automatic Garbage Collection thresholds (`gcTime`), maintaining atomic client-side hash maps of server conditions. It enforces lazy fetching and automatic cache invalidation during state mutation.
+* **Zustand (Client Interface Coordinates):** Dedicated exclusively to temporary layout configurations (e.g., active note selection layout tracking or navigation toggle markers), entirely separate from remote persistent definitions.
