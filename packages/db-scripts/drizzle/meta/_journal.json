@@ -43,6 +43,13 @@
       "when": 1790609198000,
       "tag": "0005_numerous_nuke",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790969193384,
+      "tag": "0006_shallow_goliath",
+      "breakpoints": true
     }
   ]
 }
