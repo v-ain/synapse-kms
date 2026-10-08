@@ -8,6 +8,7 @@ import {
   timestamp,
   varchar,
   primaryKey,
+  index,
 } from 'drizzle-orm/pg-core';
 
 // СХЕМА ТАБЛИЦЫ USERS
@@ -33,32 +34,46 @@ export const foldersTable = pgTable('folders', {
 });
 
 // СХЕМА ТАБЛИЦЫ NOTES
-export const notesTable = pgTable('notes', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  folderId: uuid('folder_id').references(() => foldersTable.id, {
-    onDelete: 'set null',
-  }),
-  title: varchar('title', { length: 255 }).notNull(),
-  content: text('content').default('').notNull(),
-  isArchived: boolean('is_archived').default(false).notNull(),
-  isDeleted: boolean('is_deleted').default(false).notNull(),
-  userId: uuid('user_id')
-    .references(() => usersTable.id)
-    .notNull(),
-  // Метка точного времени изменения на клиенте для разрешения гонок (LWW)
-  clientUpdatedAt: timestamp('client_updated_at', {
-    withTimezone: true,
-    mode: 'string',
-  })
-    .defaultNow()
-    .notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
-    .defaultNow()
-    .notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
-    .defaultNow()
-    .notNull(),
-});
+export const notesTable = pgTable(
+  'notes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    folderId: uuid('folder_id').references(() => foldersTable.id, {
+      onDelete: 'set null',
+    }),
+    title: varchar('title', { length: 255 }).notNull(),
+    content: text('content').default('').notNull(),
+    isArchived: boolean('is_archived').default(false).notNull(),
+    isDeleted: boolean('is_deleted').default(false).notNull(),
+    userId: uuid('user_id')
+      .references(() => usersTable.id)
+      .notNull(),
+    // Метка точного времени изменения на клиенте для разрешения гонок (LWW)
+    clientUpdatedAt: timestamp('client_updated_at', {
+      withTimezone: true,
+      mode: 'string',
+    })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => {
+    return {
+      // Единственный, монолитный индекс, который закроет 100% потребностей getNotes
+      notesPerfIdx: index('notes_perf_idx').on(
+        table.userId,
+        table.isDeleted,
+        table.isArchived,
+        table.clientUpdatedAt.desc()
+      ),
+    };
+  }
+);
 
 // СХЕМА ТАБЛИЦЫ TAGS
 export const tagsTable = pgTable('tags', {

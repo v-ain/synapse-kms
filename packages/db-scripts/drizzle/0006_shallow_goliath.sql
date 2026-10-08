@@ -1,0 +1,1 @@
+CREATE INDEX "notes_perf_idx" ON "notes" USING btree ("user_id","is_deleted","is_archived","client_updated_at" DESC NULLS LAST);
