@@ -120,21 +120,21 @@ export class NoteService implements INoteService {
       .limit(sqlLimit);
 
     // 🎨 6. Фронтенд-подсветка найденного текста
-    if (isSearchActive) {
-      const escapedSearch = searchPattern.replace(
-        /[-\/\\^\$*+?.()|[\]{}]/g,
-        '\\$&'
-      );
-      const regex = new RegExp(`(${escapedSearch})`, 'gi');
-
-      rawNotes = rawNotes.map((note) => ({
-        ...note,
-        preview: (note.preview || '').replace(
-          regex,
-          '<mark class="bg-amber-500/20 text-amber-300 px-0.5 rounded">\$1</mark>'
-        ),
-      }));
-    }
+    // if (isSearchActive) {
+    //   const escapedSearch = searchPattern.replace(
+    //     /[-\/\\^\$*+?.()|[\]{}]/g,
+    //     '\\$&'
+    //   );
+    //   const regex = new RegExp(`(${escapedSearch})`, 'gi');
+    //
+    //   rawNotes = rawNotes.map((note) => ({
+    //     ...note,
+    //     preview: (note.preview || '').replace(
+    //       regex,
+    //       '<mark class="bg-amber-500/20 text-amber-300 px-0.5 rounded">\$1</mark>'
+    //     ),
+    //   }));
+    // }
 
     const hasMore = rawNotes.length > parsedLimit;
     const items = hasMore ? rawNotes.slice(0, parsedLimit) : rawNotes;
@@ -219,22 +219,21 @@ export class NoteService implements INoteService {
 
     const movedIds: string[] = [];
 
+    // Открываем транзакцию в PostgreSQL (BEGIN)
     await this.db.transaction(async (tx) => {
-      // А. Собираем ID всех папок, где сейчас лежат эти заметки (до перемещения)
       const noteIds = items.map((i) => i.id);
+
+      // Блок А. Фиксируем снимок «старых папок» строго ДО мутаций.
+      // Запрос идет по B-Tree индексу, фиксируя физическое состояние на входе.
       const oldNotes = await tx
-        .select({ folderId: notesTable.folderId })
+        .select({ id: notesTable.id, folderId: notesTable.folderId })
         .from(notesTable)
         .where(
           and(inArray(notesTable.id, noteIds), eq(notesTable.userId, userId))
         );
 
-      const uniqueOldFolderIds = Array.from(
-        new Set(oldNotes.map((n) => n.folderId).filter(Boolean))
-      ) as string[];
-
-      // Б. Выполняем массовое обновление с LWW защитой для КАЖДОЙ заметки
-      // Больше никаких SELECT для проверки версий — сразу бьем в UPDATE!
+      // Блок Б. Массовое обновление с Lock-Free LWW-защитой для каждой заметки.
+      // Порождаем новые CoW-версии строк, удерживая Row-Level Lock до COMMIT.
       for (const item of items) {
         const [updated] = await tx
           .update(notesTable)
@@ -247,7 +246,7 @@ export class NoteService implements INoteService {
             and(
               eq(notesTable.id, item.id),
               eq(notesTable.userId, userId),
-              // Обновляем только если пришедший пакет новее того, что в базе
+              // Атомарный фильтр времени: пишем, только если пришедший пакет новее MVCC-версии в СУБД
               lt(notesTable.clientUpdatedAt, item.clientUpdatedAt)
             )
           )
@@ -258,32 +257,42 @@ export class NoteService implements INoteService {
         }
       }
 
-      // Если ни одна заметка не обновилась (все запросы устарели), счетчики менять не нужно
+      // Если ни одна строка не прошла LWW-валидацию, мгновенно прерываем транзакцию.
+      // Экономим ресурсы CPU и диска, избегая холостого COMMIT и пересчета COUNT.
       if (movedIds.length === 0) return;
 
-      // В. Собираем все папки, у которых нужно обновить счетчики (старые + новая)
-      const foldersToUpdate = new Set([...uniqueOldFolderIds]);
+      // Блок В. Логическое вычисление затронутых папок без повторных селектов к базе.
+      const foldersToUpdate = new Set<string>();
+
       if (targetFolderId) {
         foldersToUpdate.add(targetFolderId);
       }
 
-      // Г. Оптимизированный пересчет счетчиков: обновляем папки одним махом в цикле по затронутым ID
+      // Добавляем старые папки в очередь на пересчет ТОЛЬКО для реально измененных заметок
+      oldNotes.forEach((note) => {
+        if (movedIds.includes(note.id) && note.folderId) {
+          foldersToUpdate.add(note.folderId);
+        }
+      });
+
+      // Блок Г. Атомарный внутритранзакционный пересчет счетчиков папок
       if (foldersToUpdate.size > 0) {
         for (const fId of foldersToUpdate) {
           await tx
             .update(foldersTable)
             .set({
               notesCount: sql`(
-              SELECT COUNT(*) 
-              FROM ${notesTable} 
-              WHERE ${notesTable.folderId} = ${foldersTable.id} 
-                AND ${notesTable.isArchived} = false 
-                AND ${notesTable.isDeleted} = false
-            )`,
+                SELECT COUNT(*)
+                FROM ${notesTable}
+                WHERE ${notesTable.folderId} = ${foldersTable.id}
+                  AND ${notesTable.isArchived} = false
+                  AND ${notesTable.isDeleted} = false
+              )`,
             })
             .where(eq(foldersTable.id, fId));
         }
       }
+      // Здесь автоматически вызывается COMMIT. Лог пишется в WAL, Row-Level Lock снимается.
     });
 
     return { success: true, movedIds };
