@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
-import { foldersTable, notesTable, tagsTable } from './db-schema.js';
+import { foldersTable, notesTable, tagsTable } from './schema/db-schema.js';
 import { NOTE_LIMITS } from './constants.js';
 
 export type Note = InferSelectModel<typeof notesTable> & {
