@@ -14,6 +14,7 @@ import {
   foldersTable,
   notesTagsTable,
   tagsTable,
+  folderSharesTable,
 } from '@synapse-kms/shared';
 
 import type {
@@ -43,18 +44,44 @@ export class NoteService implements INoteService {
     const parsedLimit = Math.min(parseInt(limit, 10), 50);
     const sqlLimit = parsedLimit + 1; // Берем на 1 больше для проверки has_more
 
-    // Собираем массив условий фильтрации
+    // Базовые условия (удаленные/архивные и привязка к юзеру для личных заметок)
+    // ВНИМАНИЕ: Если фильтр 'folder', то условие eq(notesTable.userId, userId)
+    // нужно будет сделать гибким, так как в чужой папке заметки принадлежат ЧУЖОМУ юзеру!
     const conditions = [
       eq(notesTable.isArchived, false),
       eq(notesTable.isDeleted, false),
-      eq(notesTable.userId, userId),
     ];
 
-    // Фильтры папок
+    // Если мы НЕ запрашиваем конкретную расшаренную папку,
+    // показываем строго личные заметки пользователя
+    if (filter !== 'folder') {
+      conditions.push(eq(notesTable.userId, userId));
+    }
+
+    // Фильтры папок с учетом прав доступа
     if (filter === 'inbox') {
       conditions.push(sql`${notesTable.folderId} IS NULL`);
+      conditions.push(eq(notesTable.userId, userId)); // Inbox всегда строго личный
     } else if (filter === 'folder' && folderId) {
       conditions.push(eq(notesTable.folderId, folderId));
+
+      // Магия: Либо ты владелец заметки, либо у тебя есть запись в folder_shares для этой папки
+      conditions.push(
+        or(
+          eq(notesTable.userId, userId), // Вариант А: Моя личная папка
+          exists(
+            this.db
+              .select()
+              .from(folderSharesTable)
+              .where(
+                and(
+                  eq(folderSharesTable.folderId, folderId),
+                  eq(folderSharesTable.userId, userId) // Бьем точно по составному индексу!
+                )
+              )
+          )
+        )!
+      );
     }
 
     // Фильтрация по тегу без разрушения json_agg

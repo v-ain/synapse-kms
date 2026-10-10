@@ -73,6 +73,13 @@ export interface IFolderService {
    * Возвращает true, если папка успешно удалена, либо false, если она не найдена/удалена ранее
    */
   deleteFolder(payload: DeleteFolderPayload, userId: string): Promise<boolean>;
+
+  shareFolder(payload: {
+    folderId: string;
+    ownerId: string;
+    targetUserId: string;
+    accessLevel: 'read' | 'write';
+  }): Promise<string | null>;
 }
 
 export interface IAuthService {

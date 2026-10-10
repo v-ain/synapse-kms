@@ -1,6 +1,7 @@
 import { CreateFolderSchema, DeleteFolderSchema } from '@synapse-kms/shared';
 import { router, protectedProcedure } from '../trpc.js';
 import { TRPCError } from '@trpc/server';
+import z from 'zod';
 
 export const foldersRouter = router({
   // Получение всех папок пользователя
@@ -30,5 +31,34 @@ export const foldersRouter = router({
       }
 
       return { success: true };
+    }),
+
+  // Мутация для добавления доступа к папке
+  shareFolder: protectedProcedure
+    .input(
+      z.object({
+        folderId: z.string().uuid(),
+        targetUserId: z.string().uuid(),
+        accessLevel: z.enum(['read', 'write']).default('read'),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const ownerId = ctx.userId;
+
+      const shareRecord = await ctx.folderService.shareFolder({
+        ...input,
+        ownerId,
+      });
+
+      if (!shareRecord) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'У вас нет прав на управление доступом к этой папке',
+        });
+      }
+      return {
+        success: true,
+        recordId: shareRecord,
+      };
     }),
 });
