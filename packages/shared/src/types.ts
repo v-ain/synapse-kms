@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
-import { foldersTable, notesTable, tagsTable } from './schema/db-schema.js';
+import {
+  foldersTable,
+  notesTable,
+  tagsTable,
+  usersTable,
+} from './schema/db-schema.js';
 import { NOTE_LIMITS } from './constants.js';
 
 export type Note = InferSelectModel<typeof notesTable> & {
@@ -175,3 +180,5 @@ export const authCredentialsSchema = z.object({
 });
 
 export type AuthCredentials = z.infer<typeof authCredentialsSchema>;
+
+export type UserEntity = InferSelectModel<typeof usersTable>;

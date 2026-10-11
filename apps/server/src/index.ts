@@ -9,6 +9,7 @@ import fastifyCookie from '@fastify/cookie';
 import { AuthService } from './services/auth.service.js';
 import { TagService } from './services/tag.service.js';
 import { AdminService } from './services/admin.service.js';
+import { UserService } from './services/user.service.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -19,7 +20,8 @@ await fastify.register(fastifyCookie, {
   secret: process.env.COOKIE_SECRET || 'my-cookie-secret-key-change-me', // для подписи кук при необходимости
 });
 
-const authService = new AuthService(db);
+const userService = new UserService(db);
+const authService = new AuthService(db, userService);
 const tagService = new TagService(db);
 const adminService = new AdminService(db);
 

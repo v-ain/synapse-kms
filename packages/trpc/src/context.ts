@@ -11,6 +11,7 @@ import type {
   Tag,
   TagWithCount,
   UpdateNotePayload,
+  UserEntity,
 } from '@synapse-kms/shared';
 
 export interface INoteService {
@@ -92,6 +93,12 @@ export interface ITagService {
     userId: string
   ): Promise<{ success: true; tag: Tag }>;
   getUserTags(userId: string): Promise<TagWithCount[]>;
+}
+
+export interface IUserService {
+  findById(id: string): Promise<UserEntity | null>;
+  findByEmail(email: string): Promise<UserEntity | null>;
+  getUserProfile(id: string): Promise<Omit<UserEntity, 'passwordHash'> | null>;
 }
 
 export interface IAdminService {

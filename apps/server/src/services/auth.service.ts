@@ -1,14 +1,18 @@
-import { type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import { usersTable } from '@synapse-kms/shared';
+import { DrizzleDB } from '../db.js';
+import type { UserService } from './user.service.js';
 
 const JWT_SECRET =
   process.env.JWT_SECRET || 'super-secret-key-change-me-in-production';
 
 export class AuthService {
-  constructor(private db: PostgresJsDatabase<any>) {}
+  constructor(
+    private db: DrizzleDB,
+    private userService: UserService
+  ) {}
   // 1. Хеширование пароля (scrypt с солью)
   hashPassword(password: string): string {
     const salt = randomBytes(16).toString('hex');
@@ -45,28 +49,29 @@ export class AuthService {
   }
 
   async validateUser(email: string, password: string) {
-    const [user] = await this.db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.email, email.trim().toLowerCase()));
-
+    // Вся логика поиска теперь изолирована в одном месте
+    const user = await this.userService.findByEmail(email);
     if (!user) return null;
 
     const isPasswordValid = this.verifyPassword(password, user.passwordHash);
     if (!isPasswordValid) return null;
 
-    return user;
+    return { id: user.id, role: user.role };
   }
 
-  // 🏗️ Метод создания пользователя для регистрации
   async registerUser(email: string, password: string) {
-    const passwordHash = this.hashPassword(password);
+    const existingUser = await this.userService.findByEmail(email);
+    if (existingUser)
+      throw new Error('Пользователь с таким Email уже существует');
 
+    const hash = this.hashPassword(password);
+
+    // Мутации (INSERT) по-прежнему делаем через Core API внутри Auth
     const [newUser] = await this.db
       .insert(usersTable)
       .values({
         email: email.trim().toLowerCase(),
-        passwordHash: passwordHash,
+        passwordHash: hash,
       })
       .returning();
 
