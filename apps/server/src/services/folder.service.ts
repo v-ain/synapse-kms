@@ -4,7 +4,11 @@ import {
   foldersTable,
   notesTable,
 } from '@synapse-kms/shared';
-import type { DeleteFolderPayload, Folder } from '@synapse-kms/shared';
+import type {
+  DeleteFolderPayload,
+  Folder,
+  FolderWithRole,
+} from '@synapse-kms/shared';
 import { DrizzleDB } from 'src/db.js';
 import { IFolderService } from '@synapse-kms/trpc';
 
@@ -12,52 +16,46 @@ export class FolderService implements IFolderService {
   constructor(private db: DrizzleDB) {}
 
   // 1. ПОЛУЧИТЬ ВСЕ ДОСТУПНЫЕ ПАПКИ (Личные + Расшаренные)
-  async getFolders(userId: string): Promise<Folder[]> {
-    // Запрос А: Мои личные живые папки
-    const myFoldersQuery = this.db
-      .select({
-        id: foldersTable.id,
-        title: foldersTable.title,
-        userId: foldersTable.userId, // Будет видно, кто владелец
-        isDeleted: foldersTable.isDeleted,
-        createdAt: foldersTable.createdAt,
-        notesCount: foldersTable.notesCount,
-        // updatedAt: foldersTable.updatedAt,
-      })
-      .from(foldersTable)
-      .where(
-        and(eq(foldersTable.isDeleted, false), eq(foldersTable.userId, userId))
-      );
+  async getFolders(userId: string): Promise<FolderWithRole[]> {
+    // 1. Одним запросом забираем и личные папки, и доступы к чужим
+    const userData = await this.db.query.usersTable.findFirst({
+      where: (users, { eq }) => eq(users.id, userId),
+      with: {
+        // А. Тянем личные папки
+        folders: {
+          where: (folders, { eq }) => eq(folders.isDeleted, false),
+        },
+        // Б. Тянем записи шеринга чужих папок
+        shares: {
+          with: {
+            folder: true, // Проваливаемся сквозь мост прямо в тело чужой папки!
+          },
+        },
+      },
+    });
 
-    // Запрос Б: Чужие живые папки, к которым мне дали доступ
-    const sharedFoldersQuery = this.db
-      .select({
-        id: foldersTable.id,
-        title: foldersTable.title,
-        userId: foldersTable.userId, // Поймем, чья это папка
-        isDeleted: foldersTable.isDeleted,
-        createdAt: foldersTable.createdAt,
-        notesCount: foldersTable.notesCount,
-        // updatedAt: foldersTable.updatedAt,
-      })
-      .from(foldersTable)
-      // Делаем иннер-джойн с таблицей-мостом, чтобы отфильтровать только расшаренные на меня папки
-      .innerJoin(
-        folderSharesTable,
-        eq(foldersTable.id, folderSharesTable.folderId)
-      )
-      .where(
-        and(
-          eq(foldersTable.isDeleted, false),
-          eq(folderSharesTable.userId, userId) // Бьем точно по индексу share_user_id_idx!
-        )
-      );
+    if (!userData) return [];
 
-    // Склеиваем два запроса через UNION и сортируем по времени создания
-    // Чтобы UNION работал, структуры объектов в select() выше должны строго совпадать до последнего поля!
-    return myFoldersQuery
-      .unionAll(sharedFoldersQuery)
-      .orderBy(desc(foldersTable.createdAt));
+    // 2. Превращаем личные папки в нужный формат
+    const myFolders: FolderWithRole[] = userData.folders.map((f) => ({
+      ...f,
+      isShared: false,
+    }));
+
+    // 3. Достаем чужие папки из записей шеринга (игнорируя удаленные)
+    const sharedFolders: FolderWithRole[] = userData.shares
+      .map((s) => s.folder)
+      .filter((f): f is NonNullable<typeof f> => f !== null && !f.isDeleted)
+      .map((f) => ({
+        ...f,
+        isShared: true,
+      }));
+
+    // 4. Склеиваем массивы и сортируем по дате создания (как и было в UNION)
+    return [...myFolders, ...sharedFolders].sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
   }
 
   // 2. МЕТОД ДЛЯ ВЫДАЧИ ПРАВ

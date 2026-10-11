@@ -7,7 +7,7 @@ import {
   TagWithCount,
 } from '@synapse-kms/shared';
 import { DrizzleDB } from 'src/db.js';
-import { eq, count } from 'drizzle-orm';
+import { and, eq, count } from 'drizzle-orm';
 import { ITagService } from '@synapse-kms/trpc';
 
 export class TagService implements ITagService {
@@ -49,17 +49,23 @@ export class TagService implements ITagService {
       .select({
         id: tagsTable.id,
         name: tagsTable.name,
+        // Магия Drizzle: функция count() из drizzle-orm автоматически
+        // типизируется и возвращает number, а не строку!
         notesCount: count(notesTagsTable.noteId),
       })
       .from(tagsTable)
       .innerJoin(notesTagsTable, eq(tagsTable.id, notesTagsTable.tagId))
       .innerJoin(notesTable, eq(notesTagsTable.noteId, notesTable.id))
-      .where(eq(notesTable.userId, userId))
+      .where(
+        and(
+          eq(notesTable.userId, userId),
+          eq(notesTable.isDeleted, false),
+          eq(notesTable.isArchived, false)
+        )
+      )
       .groupBy(tagsTable.id, tagsTable.name);
 
-    return result.map((item) => ({
-      ...item,
-      notesCount: Number(item.notesCount),
-    }));
+    // Возвращаем результат напрямую, база данных уже всё посчитала в идеальном виде!
+    return result;
   }
 }

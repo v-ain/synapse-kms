@@ -25,6 +25,7 @@ import type {
   GetNotesQueryParams,
   NotePreview,
   UpdateNotePayload,
+  NoteWithTags,
 } from '@synapse-kms/shared';
 
 import { INoteService } from '@synapse-kms/trpc';
@@ -178,26 +179,45 @@ export class NoteService implements INoteService {
     };
   }
 
-  // 🔍 2. ПОЛУЧИТЬ КОНТЕНТ ЗАМЕТКИ ПО ID
-  async getNoteById(id: string, userId: string): Promise<Note | null> {
-    const [note] = await this.db
-      .select()
-      .from(notesTable)
-      .where(
+  // 2. ПОЛУЧИТЬ КОНТЕНТ ЗАМЕТКИ ПО ID
+  async getNoteById(id: string, userId: string): Promise<NoteWithTags | null> {
+    const noteData = await this.db.query.notesTable.findFirst({
+      where: (notes, { and, eq }) =>
         and(
-          eq(notesTable.id, id),
-          eq(notesTable.userId, userId),
-          eq(notesTable.isArchived, false),
-          eq(notesTable.isDeleted, false)
-        )
-      )
-      .limit(1);
+          eq(notes.id, id),
+          eq(notes.userId, userId),
+          eq(notes.isArchived, false),
+          eq(notes.isDeleted, false)
+        ),
+      // Включаем связи: проваливаемся через промежуточную таблицу прямо к тегу
+      with: {
+        notes_tags: {
+          with: {
+            tag: true,
+          },
+        },
+      },
+    });
 
-    if (!note) return null;
+    if (!noteData) return null;
 
+    // Схлопываем вложенную структуру тегов в красивый плоский массив строк ["Важно", "Работа"]
+    const tags = noteData.notes_tags.map((nt) => nt.tag.name);
+
+    // Возвращаем чистый объект, готовый для фронтенда
     return {
-      ...note,
-      preview: (note.content || '').substring(0, 150),
+      id: noteData.id,
+      folderId: noteData.folderId,
+      title: noteData.title,
+      content: noteData.content,
+      isArchived: noteData.isArchived,
+      isDeleted: noteData.isDeleted,
+      userId: noteData.userId,
+      clientUpdatedAt: noteData.clientUpdatedAt,
+      createdAt: noteData.createdAt,
+      updatedAt: noteData.updatedAt,
+      tags: tags,
+      preview: (noteData.content || '').substring(0, 150),
     };
   }
 
@@ -368,19 +388,18 @@ export class NoteService implements INoteService {
   async updateNote(
     payload: UpdateNotePayload,
     userId: string
-  ): Promise<Note | null> {
+  ): Promise<NoteWithTags | null> {
     const { id, clientUpdatedAt, title, content } = payload;
 
-    // Собираем динамический объект полей для апдейта
     const updateFields: Record<string, any> = {
       clientUpdatedAt,
-      updatedAt: new Date().toISOString(), // Серверный аудит
+      updatedAt: new Date().toISOString(),
     };
 
     if (title !== undefined) updateFields.title = title.trim();
     if (content !== undefined) updateFields.content = content;
 
-    // 1. Атомарный апдейт по времени изменения на клиенте
+    // 1. Атомарный апдейт на Core API
     const [updatedNote] = await this.db
       .update(notesTable)
       .set(updateFields)
@@ -388,34 +407,43 @@ export class NoteService implements INoteService {
         and(
           eq(notesTable.id, id),
           eq(notesTable.userId, userId),
-          // Защита: обновляем, только если в БД лежит более старый timestamp
           lt(notesTable.clientUpdatedAt, clientUpdatedAt)
         )
       )
       .returning();
 
-    // 2. Если апдейт сработал — возвращаем обновленную заметку с preview
-    if (updatedNote) {
-      return {
-        ...updatedNote,
-        preview: (updatedNote.content || '').substring(0, 150),
-      };
-    }
+    // Нам в любом случае нужно вернуть заметку с тегами (хоть при успехе, хоть при фолбэке),
+    // поэтому делаем красивый реляционный запрос:
+    const noteData = await this.db.query.notesTable.findFirst({
+      where: (notes, { and, eq }) =>
+        and(eq(notes.id, id), eq(notes.userId, userId)),
+      with: {
+        notes_tags: {
+          with: {
+            tag: true,
+          },
+        },
+      },
+    });
 
-    // 2. Фолбэк: если запрос устарел, берем то, что прямо сейчас лежит в базе
-    const [currentNote] = await this.db
-      .select()
-      .from(notesTable)
-      .where(and(eq(notesTable.id, id), eq(notesTable.userId, userId)))
-      .limit(1);
+    if (!noteData) return null;
 
-    if (!currentNote) {
-      return null;
-    }
+    // Схлопываем теги в плоский массив строк
+    const tags = noteData.notes_tags.map((nt) => nt.tag.name);
 
     return {
-      ...currentNote,
-      preview: (currentNote.content || '').substring(0, 150),
+      id: noteData.id,
+      folderId: noteData.folderId,
+      title: noteData.title,
+      content: noteData.content,
+      isArchived: noteData.isArchived,
+      isDeleted: noteData.isDeleted,
+      userId: noteData.userId,
+      clientUpdatedAt: noteData.clientUpdatedAt,
+      createdAt: noteData.createdAt,
+      updatedAt: noteData.updatedAt,
+      tags: tags,
+      preview: (noteData.content || '').substring(0, 150),
     };
   }
 }

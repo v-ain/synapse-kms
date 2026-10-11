@@ -8,6 +8,12 @@ export type Note = InferSelectModel<typeof notesTable> & {
   tags?: string[];
 };
 
+// Точная и строгая структура заметки, которую возвращает метод getNoteById
+export type NoteWithTags = Note & {
+  preview: string; // Переопределяем как обязательное поле
+  tags: string[]; // Переопределяем как обязательное поле
+};
+
 // Превью тоже автоматически использует string для дат
 export type NotePreview = Omit<
   Note,
@@ -26,6 +32,9 @@ export type NoteWithAuthor = Pick<
 
 export type Folder = InferSelectModel<typeof foldersTable>;
 
+export type FolderWithRole = Folder & {
+  isShared: boolean;
+};
 // Схема для создания папки
 export const CreateFolderSchema = z.object({
   title: z

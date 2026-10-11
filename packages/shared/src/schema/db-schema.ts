@@ -9,6 +9,8 @@ import {
   varchar,
   primaryKey,
   index,
+  pgEnum,
+  unique,
 } from 'drizzle-orm/pg-core';
 
 // СХЕМА ТАБЛИЦЫ USERS
@@ -98,21 +100,73 @@ export const notesTagsTable = pgTable(
   ]
 );
 
-// СВЯЗИ ДЛЯ ЗАМЕТОК
+// 1. Создаем перечисление (Enum) для уровней доступа прямо в PostgreSQL
+export const accessLevelEnum = pgEnum('access_level', ['read', 'write']);
+
+export const folderSharesTable = pgTable(
+  'folder_shares',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    folderId: uuid('folder_id')
+      .references(() => foldersTable.id, { onDelete: 'cascade' }) // Если папка удалена — доступы чистятся автоматически
+      .notNull(),
+
+    userId: uuid('user_id')
+      .references(() => usersTable.id, { onDelete: 'cascade' })
+      .notNull(),
+
+    accessLevel: accessLevelEnum('access_level').default('read').notNull(),
+  },
+  (table) => {
+    return {
+      // Уникальный составной индекс: защищает базу от дубликатов (нельзя дважды расшарить одну папку одному юзеру)
+      // И он же обеспечивает космическую скорость O(log N) при проверке прав доступа!
+      folderUserUniqueIdx: unique('folder_user_unique_idx').on(
+        table.folderId,
+        table.userId
+      ),
+
+      // Дополнительный индекс для обратного поиска: "найти все ЧУЖИЕ папки, к которым у этого юзера есть доступ"
+      userFolderIdx: index('share_user_id_idx').on(table.userId),
+    };
+  }
+);
+
+// 1. СВЯЗИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ (Users)
+export const usersRelations = relations(usersTable, ({ many }) => ({
+  folders: many(foldersTable), // Папки, которыми владеет пользователь
+  notes: many(notesTable), // Личные заметки пользователя
+  shares: many(folderSharesTable), // Доступы к чужим папкам, которые выданы этому пользователю
+}));
+
+// 2. СВЯЗИ ДЛЯ ПАПОК (Folders)
+export const foldersRelations = relations(foldersTable, ({ one, many }) => ({
+  // У папки есть один владелец (пользователь)
+  author: one(usersTable, {
+    fields: [foldersTable.userId],
+    references: [usersTable.id],
+  }),
+  notes: many(notesTable), // Заметки внутри этой папки
+  shares: many(folderSharesTable), // Все пользователи, которым расшарена эта папка
+}));
+
+// 3. СВЯЗИ ДЛЯ ЗАМЕТОК (Notes)
 export const notesRelations = relations(notesTable, ({ one, many }) => ({
+  // Заметка принадлежит одной папке (может быть null для Inbox)
   folder: one(foldersTable, {
     fields: [notesTable.folderId],
     references: [foldersTable.id],
   }),
-  notes_tags: many(notesTagsTable),
+  // Заметка принадлежит конкретному автору
+  author: one(usersTable, {
+    fields: [notesTable.userId],
+    references: [usersTable.id],
+  }),
+  notes_tags: many(notesTagsTable), // Связь M2M с тегами
 }));
 
-// СВЯЗИ ДЛЯ ПАПОК
-export const foldersRelations = relations(foldersTable, ({ many }) => ({
-  notes: many(notesTable),
-}));
-
-// СВЯЗИ ДЛЯ СВЯЗУЮЩЕЙ ТАБЛИЦЫ MANY-TO-MANY
+// 4. СВЯЗИ ДЛЯ СВЯЗУЮЩЕЙ ТАБЛИЦЫ ЗАМЕТКИ-ТЕГИ (Many-to-Many)
 export const notesTagsRelations = relations(notesTagsTable, ({ one }) => ({
   note: one(notesTable, {
     fields: [notesTagsTable.noteId],
@@ -124,7 +178,24 @@ export const notesTagsRelations = relations(notesTagsTable, ({ one }) => ({
   }),
 }));
 
-// СВЯЗИ ДЛЯ ТЕГОВ
+// 5. СВЯЗИ ДЛЯ ТЕГОВ (Tags)
 export const tagsRelations = relations(tagsTable, ({ many }) => ({
-  notes_tags: many(notesTagsTable),
+  notes_tags: many(notesTagsTable), // Тег может быть привязан ко многим заметкам
 }));
+
+// 6. СВЯЗИ ДЛЯ ТАБЛИЦЫ ШЕРИНГА (Folder Shares)
+export const folderSharesRelations = relations(
+  folderSharesTable,
+  ({ one }) => ({
+    // Каждая запись шеринга указывает на одну конкретную папку
+    folder: one(foldersTable, {
+      fields: [folderSharesTable.folderId],
+      references: [foldersTable.id],
+    }),
+    // Каждая запись указывает на одного конкретного пользователя, которому дали доступ
+    user: one(usersTable, {
+      fields: [folderSharesTable.userId],
+      references: [usersTable.id],
+    }),
+  })
+);
