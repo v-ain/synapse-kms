@@ -13,15 +13,14 @@ import { UserService } from './services/user.service.js';
 
 const fastify = Fastify({ logger: true });
 
-const noteService = new NoteService(db);
-const folderService = new FolderService(db);
-
 await fastify.register(fastifyCookie, {
   secret: process.env.COOKIE_SECRET || 'my-cookie-secret-key-change-me', // для подписи кук при необходимости
 });
 
 const userService = new UserService(db);
 const authService = new AuthService(db, userService);
+const noteService = new NoteService(db);
+const folderService = new FolderService(db, userService);
 const tagService = new TagService(db);
 const adminService = new AdminService(db);
 
@@ -35,7 +34,6 @@ const COOKIE_OPTIONS = {
 };
 
 // apps/server/src/index.ts
-
 await fastify.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   useWss: false,
@@ -67,6 +65,7 @@ await fastify.register(fastifyTRPCPlugin, {
         folderService,
         authService,
         tagService,
+        userService,
         adminService,
         userId,
         userRole,

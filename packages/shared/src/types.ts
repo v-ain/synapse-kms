@@ -40,6 +40,13 @@ export type Folder = InferSelectModel<typeof foldersTable>;
 export type FolderWithRole = Folder & {
   isShared: boolean;
 };
+
+export interface FolderAccessResult {
+  hasAccess: boolean;
+  role: 'owner' | 'guest' | null;
+  accessLevel?: 'read' | 'write';
+}
+
 // Схема для создания папки
 export const CreateFolderSchema = z.object({
   title: z

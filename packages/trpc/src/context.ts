@@ -4,6 +4,7 @@ import type {
   CreateNotePayload,
   DeleteFolderPayload,
   Folder,
+  FolderAccessResult,
   GetNotesQueryParams,
   Note,
   NotePreview,
@@ -75,12 +76,27 @@ export interface IFolderService {
    */
   deleteFolder(payload: DeleteFolderPayload, userId: string): Promise<boolean>;
 
+  /**
+   * Проверка прав доступа пользователя к конкретной папке (Владелец / Шеринг)
+   */
+  checkFolderAccess(
+    folderId: string,
+    userId: string
+  ): Promise<FolderAccessResult>;
+
+  /**
+   * Расшаривание папки другому пользователю по его Email
+   */
   shareFolder(payload: {
     folderId: string;
     ownerId: string;
-    targetUserId: string;
+    targetEmail: string; // Меняем targetUserId на targetEmail для безопасности
     accessLevel: 'read' | 'write';
-  }): Promise<string | null>;
+  }): Promise<{
+    success: boolean;
+    sharedWith: string;
+    accessLevel: 'read' | 'write';
+  }>;
 }
 
 export interface IAuthService {
@@ -110,6 +126,7 @@ export interface ContextOptions {
   folderService: IFolderService;
   authService: IAuthService;
   tagService: ITagService;
+  userService: IUserService;
   adminService: IAdminService;
   userId: string | null;
   userRole: string | null;
@@ -122,6 +139,7 @@ export function createContext(opts: ContextOptions) {
     folderService: opts.folderService,
     authService: opts.authService,
     tagService: opts.tagService,
+    userService: opts.userService,
     adminService: opts.adminService,
     userId: opts.userId,
     userRole: opts.userRole,

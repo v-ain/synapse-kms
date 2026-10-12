@@ -19,11 +19,29 @@ export const notesRouter = router({
       return await ctx.noteService.getNotes(input, ctx.userId);
     }),
 
-  // Роут создания заметки
+  // Оставляем базовую protectedProcedure, так как для Inbox (folderId: null) мидлвар не нужен
   create: protectedProcedure
     .input(CreateNoteSchema)
     .mutation(async ({ input, ctx }) => {
-      // tRPC передает валидный input прямо в ваш готовый контроллер!
+      const { folderId } = input;
+
+      // ЕСЛИ ЗАМЕТКА СОЗДАЕТСЯ В ПАПКЕ — проверяем права на запись
+      if (folderId) {
+        const access = await ctx.folderService.checkFolderAccess(
+          folderId,
+          ctx.userId
+        );
+
+        // Если доступа нет ВООБЩЕ или уровень прав только 'read' (гость без права редактирования)
+        if (!access.hasAccess || access.accessLevel !== 'write') {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'У вас нет прав на создание заметок в этой папке',
+          });
+        }
+      }
+
+      // ЕСЛИ ЭТО INBOX (folderId === null) — проверка пропускается, это личная зона
       const newNote = await ctx.noteService.createNote(input, ctx.userId);
 
       return newNote;

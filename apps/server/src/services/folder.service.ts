@@ -7,14 +7,60 @@ import {
 import type {
   DeleteFolderPayload,
   Folder,
+  FolderAccessResult,
   FolderWithRole,
 } from '@synapse-kms/shared';
 import { DrizzleDB } from 'src/db.js';
 import { IFolderService } from '@synapse-kms/trpc';
+import type { UserService } from './user.service.js';
 
 export class FolderService implements IFolderService {
-  constructor(private db: DrizzleDB) {}
+  constructor(
+    private db: DrizzleDB,
+    private userService: UserService
+  ) {}
 
+  async checkFolderAccess(
+    folderId: string,
+    userId: string
+  ): Promise<FolderAccessResult> {
+    // Выполняем один быстрый реляционный запрос
+    const folder = await this.db.query.foldersTable.findFirst({
+      where: (folders, { eq }) => eq(folders.id, folderId),
+      with: {
+        shares: {
+          where: (shares, { eq }) => eq(shares.userId, userId),
+        },
+      },
+    });
+
+    // 1. Папка не существует в природе
+    if (!folder) {
+      return { hasAccess: false, role: null };
+    }
+
+    // 2. Текущий пользователь является создателем/владельцем папки
+    if (folder.userId === userId) {
+      return {
+        hasAccess: true,
+        role: 'owner',
+        accessLevel: 'write', // Владелец всегда имеет права на запись
+      };
+    }
+
+    // 3. Папка расшарена на этого пользователя (проверяем запись из таблицы-моста)
+    if (folder.shares.length > 0) {
+      const shareRecord = folder.shares[0];
+      return {
+        hasAccess: true,
+        role: 'guest',
+        accessLevel: shareRecord.accessLevel, // 'read' или 'write'
+      };
+    }
+
+    // 4. Папка существует, но пользователь к ней не имеет никакого отношения
+    return { hasAccess: false, role: null };
+  }
   // 1. ПОЛУЧИТЬ ВСЕ ДОСТУПНЫЕ ПАПКИ (Личные + Расшаренные)
   async getFolders(userId: string): Promise<FolderWithRole[]> {
     // 1. Одним запросом забираем и личные папки, и доступы к чужим
@@ -58,42 +104,68 @@ export class FolderService implements IFolderService {
     );
   }
 
-  // 2. МЕТОД ДЛЯ ВЫДАЧИ ПРАВ
+  // 2. МЕТОД ДЛЯ ВЫДАЧИ ПРАВ (С конвертацией Email -> ID и LWW/OnConflict защитой)
   async shareFolder(params: {
     folderId: string;
     ownerId: string;
-    targetUserId: string;
+    targetEmail: string; // 🚀 Принимаем Email вместо сырого ID
     accessLevel: 'read' | 'write';
-  }): Promise<string | null> {
-    return await this.db.transaction(async (tx) => {
-      // Жесткий ручной замок на строку папки для предотвращения дедлоков
-      const [ownedFolder] = await tx
-        .select()
-        .from(foldersTable)
-        .where(
-          and(
-            eq(foldersTable.id, params.folderId),
-            eq(foldersTable.userId, params.ownerId) // Проверяем, что запрашивающий — владелец
-          )
-        )
-        .for('update');
+  }): Promise<{
+    success: boolean;
+    sharedWith: string;
+    accessLevel: 'read' | 'write';
+  }> {
+    const { folderId, ownerId, targetEmail, accessLevel } = params;
 
-      if (!ownedFolder) {
-        return null;
-      }
-
-      // Атомарно пишем в таблицу-мост
-      const [shareRecord] = await tx
-        .insert(folderSharesTable)
-        .values({
-          folderId: params.folderId,
-          userId: params.targetUserId,
-          accessLevel: params.accessLevel,
-        })
-        .returning();
-
-      return shareRecord.id;
+    // 1. Проверяем, что запрашивающий — реально владелец папки (Реляционный стиль)
+    const ownedFolder = await this.db.query.foldersTable.findFirst({
+      where: (folders, { and, eq }) =>
+        and(
+          eq(folders.id, folderId),
+          eq(folders.userId, ownerId),
+          eq(folders.isDeleted, false)
+        ),
     });
+
+    if (!ownedFolder) {
+      throw new Error(
+        '403: Папка не найдена или вы не являетесь её владельцем'
+      );
+    }
+
+    // 2. Идем в UserService за ID целевого пользователя
+    const targetUser = await this.userService.findByEmail(targetEmail);
+
+    if (!targetUser) {
+      throw new Error(
+        '404: Пользователь с таким Email не зарегистрирован в системе'
+      );
+    }
+
+    if (targetUser.id === ownerId) {
+      throw new Error('400: Нельзя расшарить папку самому себе');
+    }
+
+    // 3. Атомарно пишем в таблицу-мост с upsert-механикой (onConflictDoUpdate)
+    const [shareRecord] = await this.db
+      .insert(folderSharesTable)
+      .values({
+        folderId,
+        userId: targetUser.id,
+        accessLevel,
+      })
+      // Если папка уже была расшарена этому юзеру, просто атомарно обновляем ему роль (например, с read на write)
+      .onConflictDoUpdate({
+        target: [folderSharesTable.folderId, folderSharesTable.userId],
+        set: { accessLevel },
+      })
+      .returning();
+
+    return {
+      success: true,
+      sharedWith: targetUser.email,
+      accessLevel: shareRecord.accessLevel,
+    };
   }
 
   // Создать новую папку

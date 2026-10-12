@@ -1,5 +1,5 @@
 import { initTRPC, TRPCError } from '@trpc/server';
-import { ZodError } from 'zod';
+import z, { ZodError } from 'zod';
 import { type Context } from './context.js';
 
 // Инициализируем tRPC с форматтером ошибок
@@ -26,6 +26,7 @@ const t = initTRPC.context<Context>().create({
 export const router = t.router;
 export const publicProcedure = t.procedure;
 
+// 1. Базовый мидлвар авторизации (проверяет наличие userId)
 const isAuthed = t.middleware(({ ctx, next }) => {
   if (!ctx.userId) {
     throw new TRPCError({
@@ -33,15 +34,54 @@ const isAuthed = t.middleware(({ ctx, next }) => {
       message: 'Для выполнения этого действия необходима авторизация',
     });
   }
-
-  return next({
-    ctx: {
-      userId: ctx.userId,
-    },
-  });
+  // Передаем userId как гарантированно не-null в следующую цепочку
+  return next({ ctx: { userId: ctx.userId } });
 });
 
 export const protectedProcedure = t.procedure.use(isAuthed);
+
+// 🔍 Валидатор входного параметра folderId
+const folderInputSchema = z.object({
+  id: z.string().uuid(),
+});
+
+// 2. Создаем процедуру для чтения папки (tRPC v11 style)
+// Сначала привязываем инпут, и только потом вызывем .use() — это открывает доступ к свойству `input`
+export const folderReadProcedure = protectedProcedure
+  .input(folderInputSchema)
+  .use(async ({ ctx, next, input }) => {
+    // 🚀 Благодаря tRPC v11, `input.folderId` здесь строго типизирован как string!
+    const { id } = input;
+
+    const access = await ctx.folderService.checkFolderAccess(id, ctx.userId);
+
+    if (!access.hasAccess) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'У вас нет доступа к этой папке',
+      });
+    }
+
+    // Обогащаем контекст для следующих шагов или самого роута
+    return next({
+      ctx: {
+        id,
+        folderRole: access.role, // 'owner' | 'guest'
+        folderAccessLevel: access.accessLevel, // 'read' | 'write'
+      },
+    });
+  });
+
+// 3. Создаем процедуру для записи, расширяя folderReadProcedure
+export const folderWriteProcedure = folderReadProcedure.use(({ ctx, next }) => {
+  if (ctx.folderAccessLevel !== 'write') {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'У вас права только на чтение данных в этой папке',
+    });
+  }
+  return next();
+});
 
 // 3. Создаем middleware для проверки роли АДМИНИСТРАТОРА
 const isAdmin = t.middleware(({ ctx, next }) => {
