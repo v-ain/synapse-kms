@@ -221,41 +221,27 @@ export class NoteService implements INoteService {
     };
   }
 
-  // СОЗДАТЬ ЗАМЕТКУ (С транзакционным пересчетом счетчика папки)
+  // СОЗДАТЬ ЗАМЕТКУ
   async createNote(payload: CreateNotePayload, userId: string): Promise<Note> {
     const { title, content, folderId } = payload;
 
-    const newNote = await this.db.transaction(async (tx) => {
-      // А. Вставляем саму заметку
-      const [note] = await tx
-        .insert(notesTable)
-        .values({
-          title: title.trim(),
-          content: content || '',
-          folderId: folderId || null,
-          userId: userId,
-        })
-        .returning();
+    // 🚀 АТОМАРНАЯ ВСТАВКА: Больше никаких транзакций и блокировок папок!
+    const [note] = await this.db
+      .insert(notesTable)
+      .values({
+        title: title.trim(),
+        content: content || '',
+        folderId: folderId || null, // null означает Inbox
+        userId: userId,
+      })
+      .returning();
 
-      // Б. Атомарно пересчитываем notes_count папки через подзапрос
-      if (folderId) {
-        await tx
-          .update(foldersTable)
-          .set({
-            notesCount: sql`(SELECT COUNT(*) FROM ${notesTable} WHERE ${notesTable.folderId} = ${foldersTable.id} AND ${notesTable.isArchived} = false AND ${notesTable.isDeleted} = false)`,
-          })
-          .where(eq(foldersTable.id, folderId));
-      }
-
-      // Докидываем виртуальные поля для фронтенда, так как при создании тегов еще нет
-      return {
-        ...note,
-        preview: (content || '').substring(0, 150),
-        tags: [],
-      };
-    });
-
-    return newNote;
+    // Возвращаем объект, обогащая его виртуальными полями для фронтенда
+    return {
+      ...note,
+      preview: (content || '').substring(0, 150),
+      tags: [], // При создании заметки тегов на ней еще нет
+    };
   }
 
   async bulkMove(
@@ -263,122 +249,65 @@ export class NoteService implements INoteService {
     userId: string
   ): Promise<{ success: true; movedIds: string[] }> {
     const { items, targetFolderId } = payload;
-
     const movedIds: string[] = [];
 
-    // Открываем транзакцию в PostgreSQL (BEGIN)
-    await this.db.transaction(async (tx) => {
-      const noteIds = items.map((i) => i.id);
-
-      // Блок А. Фиксируем снимок «старых папок» строго ДО мутаций.
-      // Запрос идет по B-Tree индексу, фиксируя физическое состояние на входе.
-      const oldNotes = await tx
-        .select({ id: notesTable.id, folderId: notesTable.folderId })
-        .from(notesTable)
+    // БОЛЬШЕ НИКАКИХ ТРАНЗАКЦИЙ, СЕЛЕКТОВ СТАРЫХ ПАПОК И ЦИКЛОВ ОБНОВЛЕНИЯ СЧЕТЧИКОВ!
+    // Массовое обновление с Lock-Free LWW-защитой для каждой заметки.
+    for (const item of items) {
+      const [updated] = await this.db
+        .update(notesTable)
+        .set({
+          folderId: targetFolderId || null, // null означает Inbox
+          clientUpdatedAt: item.clientUpdatedAt,
+          updatedAt: new Date().toISOString(),
+        })
         .where(
-          and(inArray(notesTable.id, noteIds), eq(notesTable.userId, userId))
-        );
-
-      // Блок Б. Массовое обновление с Lock-Free LWW-защитой для каждой заметки.
-      // Порождаем новые CoW-версии строк, удерживая Row-Level Lock до COMMIT.
-      for (const item of items) {
-        const [updated] = await tx
-          .update(notesTable)
-          .set({
-            folderId: targetFolderId || null,
-            clientUpdatedAt: item.clientUpdatedAt,
-            updatedAt: new Date().toISOString(),
-          })
-          .where(
-            and(
-              eq(notesTable.id, item.id),
-              eq(notesTable.userId, userId),
-              // Атомарный фильтр времени: пишем, только если пришедший пакет новее MVCC-версии в СУБД
-              lt(notesTable.clientUpdatedAt, item.clientUpdatedAt)
-            )
+          and(
+            eq(notesTable.id, item.id),
+            eq(notesTable.userId, userId),
+            // Атомарный фильтр времени LWW: пишем, только если пришедший пакет новее версии в СУБД
+            lt(notesTable.clientUpdatedAt, item.clientUpdatedAt)
           )
-          .returning({ id: notesTable.id });
+        )
+        .returning({ id: notesTable.id });
 
-        if (updated) {
-          movedIds.push(updated.id);
-        }
+      if (updated) {
+        movedIds.push(updated.id);
       }
+    }
 
-      // Если ни одна строка не прошла LWW-валидацию, мгновенно прерываем транзакцию.
-      // Экономим ресурсы CPU и диска, избегая холостого COMMIT и пересчета COUNT.
-      if (movedIds.length === 0) return;
-
-      // Блок В. Логическое вычисление затронутых папок без повторных селектов к базе.
-      const foldersToUpdate = new Set<string>();
-
-      if (targetFolderId) {
-        foldersToUpdate.add(targetFolderId);
-      }
-
-      // Добавляем старые папки в очередь на пересчет ТОЛЬКО для реально измененных заметок
-      oldNotes.forEach((note) => {
-        if (movedIds.includes(note.id) && note.folderId) {
-          foldersToUpdate.add(note.folderId);
-        }
-      });
-
-      // Блок Г. Атомарный внутритранзакционный пересчет счетчиков папок
-      if (foldersToUpdate.size > 0) {
-        for (const fId of foldersToUpdate) {
-          await tx
-            .update(foldersTable)
-            .set({
-              notesCount: sql`(
-                SELECT COUNT(*)
-                FROM ${notesTable}
-                WHERE ${notesTable.folderId} = ${foldersTable.id}
-                  AND ${notesTable.isArchived} = false
-                  AND ${notesTable.isDeleted} = false
-              )`,
-            })
-            .where(eq(foldersTable.id, fId));
-        }
-      }
-      // Здесь автоматически вызывается COMMIT. Лог пишется в WAL, Row-Level Lock снимается.
-    });
-
+    // Возвращаем фронтенду массив ID заметок, которые реально сменили локацию
     return { success: true, movedIds };
   }
 
-  // 5. АРХИВАЦИЯ ЗАМЕТКИ (Оптимизированная ACID логика без лишних SELECT)
+  // 5. АРХИВАЦИЯ ЗАМЕТКИ (Чистая атомарная логика без транзакций и пересчетов)
   async archiveNote(
     id: string,
     userId: string
   ): Promise<
     { error: string; status: number } | { error: null; success: true }
   > {
-    const result = await this.db.transaction(async (tx) => {
-      // А. Сразу маркируем архив и возвращаем folder_id обновленной заметки
-      const [updatedNote] = await tx
-        .update(notesTable)
-        .set({ isArchived: true, updatedAt: sql`CURRENT_TIMESTAMP` })
-        .where(and(eq(notesTable.id, id), eq(notesTable.userId, userId)))
-        .returning({ folderId: notesTable.folderId }); // Вытаскиваем только то, что нужно для счетчика
+    // 🚀 ОДИН АТОМАРНЫЙ ЗАПРОС: Сразу маркируем архив и проверяем автора
+    const [updatedNote] = await this.db
+      .update(notesTable)
+      .set({
+        isArchived: true,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(
+        and(
+          eq(notesTable.id, id),
+          eq(notesTable.userId, userId) // Защита: архивировать может только создатель
+        )
+      )
+      .returning(); // Нам больше не нужно вытаскивать folderId для счетчиков!
 
-      // Если массив пустой, значит заметка не найдена или чужая
-      if (!updatedNote) {
-        return { error: 'Заметка не найдена или у вас нет прав', status: 404 };
-      }
+    // Если база вернула пустой массив, значит заметка не существует или она чужая
+    if (!updatedNote) {
+      return { error: 'Заметка не найдена или у вас нет прав', status: 404 };
+    }
 
-      // Б. Пересчитываем счетчик папки, в которой лежала заметка
-      if (updatedNote.folderId) {
-        await tx
-          .update(foldersTable)
-          .set({
-            notesCount: sql`(SELECT COUNT(*) FROM ${notesTable} WHERE ${notesTable.folderId} = ${foldersTable.id} AND ${notesTable.isArchived} = false AND ${notesTable.isDeleted} = false)`,
-          })
-          .where(eq(foldersTable.id, updatedNote.folderId));
-      }
-
-      return { error: null, success: true } as const;
-    });
-
-    return result;
+    return { error: null, success: true };
   }
 
   /**

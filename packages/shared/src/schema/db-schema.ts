@@ -25,7 +25,6 @@ export const usersTable = pgTable('users', {
 export const foldersTable = pgTable('folders', {
   id: uuid('id').primaryKey().defaultRandom(),
   title: varchar('title', { length: 100 }).notNull(),
-  notesCount: integer('notes_count').default(0).notNull(),
   isDeleted: boolean('is_deleted').default(false).notNull(),
   userId: uuid('user_id')
     .references(() => usersTable.id)

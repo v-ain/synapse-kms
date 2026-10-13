@@ -1,4 +1,4 @@
-import { eq, and, sql as drizzleSql, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import {
   folderSharesTable,
   foldersTable,
@@ -62,48 +62,50 @@ export class FolderService implements IFolderService {
     return { hasAccess: false, role: null };
   }
   // 1. ПОЛУЧИТЬ ВСЕ ДОСТУПНЫЕ ПАПКИ (Личные + Расшаренные)
-  async getFolders(userId: string): Promise<FolderWithRole[]> {
-    // 1. Атомарно забираем данные (без ошибок типизации на вложенных `with`)
-    const userData = await this.db.query.usersTable.findFirst({
-      where: (users, { eq }) => eq(users.id, userId),
-      with: {
-        // А. Личные папки фильтруем и сортируем на уровне СУБД
-        folders: {
-          where: (folders, { eq }) => eq(folders.isDeleted, false),
-          orderBy: (folders, { desc }) => [desc(folders.createdAt)],
-        },
-        // Б. Для чужих папок просто забираем связи через мост
-        shares: {
-          with: {
-            folder: true, // Просто вытаскиваем объект папки целиком
-          },
-        },
-      },
-    });
+  async getFolders(userId: string) {
+    const rows = await this.db
+      .select({
+        id: foldersTable.id,
+        title: foldersTable.title,
+        createdAt: foldersTable.createdAt,
+        userId: foldersTable.userId,
+        isDeleted: foldersTable.isDeleted,
+        // 📊 Считаем количество заметок динамически.
+        // База вернет 0, если заметок в папке нет.
+        notesCount: sql<number>`COALESCE(count(${notesTable.id})::int, 0)`,
+        // 🔔 Будущая фича непрочитанных (вот так легко она добавится!):
+        // unreadCount: sql<number>`count(${notesTable.id}) filter (where not ${notesTable.isRead})::int`
+      })
+      .from(foldersTable)
+      // Делаем LEFT JOIN к заметкам, чтобы посчитать их (только не удаленные!)
+      .leftJoin(
+        notesTable,
+        and(
+          eq(notesTable.folderId, foldersTable.id),
+          eq(notesTable.isDeleted, false)
+        )
+      )
+      // Подключаем таблицу доступов
+      .leftJoin(
+        folderSharesTable,
+        eq(folderSharesTable.folderId, foldersTable.id)
+      )
+      // Фильтруем: папка должна быть не удалена И принадлежать юзеру ИЛИ быть расшаренной на него
+      .where(
+        and(
+          eq(foldersTable.isDeleted, false),
+          sql`(${foldersTable.userId} = ${userId} OR ${folderSharesTable.userId} = ${userId})`
+        )
+      )
+      // Группируем по уникальным полям папки, чтобы агрегат count() отработал корректно
+      .groupBy(foldersTable.id)
+      .orderBy(desc(foldersTable.createdAt));
 
-    if (!userData) return [];
-
-    // 2. Мапим личные папки
-    const myFolders: FolderWithRole[] = userData.folders.map((f) => ({
-      ...f,
-      isShared: false,
+    // Проставляем флаг isShared на основе сравнения создателя
+    return rows.map((row) => ({
+      ...row,
+      isShared: row.userId !== userId,
     }));
-
-    // 3. Достаем чужие папки и фильтруем удаленные на уровне JS
-    // Это полностью легально и не рушит типы LSP
-    const sharedFolders: FolderWithRole[] = userData.shares
-      .map((s) => s.folder)
-      // Тайп-гард: папка существует и она НЕ помечена как удаленная
-      .filter((f): f is NonNullable<typeof f> => f !== null && !f.isDeleted)
-      .map((f) => ({
-        ...f,
-        isShared: true,
-      }));
-
-    // 4. Склеиваем массивы и делаем супер-быструю сортировку строк
-    return [...myFolders, ...sharedFolders].sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt)
-    );
   }
 
   // 2. МЕТОД ДЛЯ ВЫДАЧИ ПРАВ (С конвертацией Email -> ID и LWW/OnConflict защитой)
