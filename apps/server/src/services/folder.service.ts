@@ -63,18 +63,19 @@ export class FolderService implements IFolderService {
   }
   // 1. ПОЛУЧИТЬ ВСЕ ДОСТУПНЫЕ ПАПКИ (Личные + Расшаренные)
   async getFolders(userId: string): Promise<FolderWithRole[]> {
-    // 1. Одним запросом забираем и личные папки, и доступы к чужим
+    // 1. Атомарно забираем данные (без ошибок типизации на вложенных `with`)
     const userData = await this.db.query.usersTable.findFirst({
       where: (users, { eq }) => eq(users.id, userId),
       with: {
-        // А. Тянем личные папки
+        // А. Личные папки фильтруем и сортируем на уровне СУБД
         folders: {
           where: (folders, { eq }) => eq(folders.isDeleted, false),
+          orderBy: (folders, { desc }) => [desc(folders.createdAt)],
         },
-        // Б. Тянем записи шеринга чужих папок
+        // Б. Для чужих папок просто забираем связи через мост
         shares: {
           with: {
-            folder: true, // Проваливаемся сквозь мост прямо в тело чужой папки!
+            folder: true, // Просто вытаскиваем объект папки целиком
           },
         },
       },
@@ -82,25 +83,26 @@ export class FolderService implements IFolderService {
 
     if (!userData) return [];
 
-    // 2. Превращаем личные папки в нужный формат
+    // 2. Мапим личные папки
     const myFolders: FolderWithRole[] = userData.folders.map((f) => ({
       ...f,
       isShared: false,
     }));
 
-    // 3. Достаем чужие папки из записей шеринга (игнорируя удаленные)
+    // 3. Достаем чужие папки и фильтруем удаленные на уровне JS
+    // Это полностью легально и не рушит типы LSP
     const sharedFolders: FolderWithRole[] = userData.shares
       .map((s) => s.folder)
+      // Тайп-гард: папка существует и она НЕ помечена как удаленная
       .filter((f): f is NonNullable<typeof f> => f !== null && !f.isDeleted)
       .map((f) => ({
         ...f,
         isShared: true,
       }));
 
-    // 4. Склеиваем массивы и сортируем по дате создания (как и было в UNION)
-    return [...myFolders, ...sharedFolders].sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    // 4. Склеиваем массивы и делаем супер-быструю сортировку строк
+    return [...myFolders, ...sharedFolders].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt)
     );
   }
 

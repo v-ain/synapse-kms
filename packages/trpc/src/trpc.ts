@@ -40,20 +40,23 @@ const isAuthed = t.middleware(({ ctx, next }) => {
 
 export const protectedProcedure = t.procedure.use(isAuthed);
 
-// 🔍 Валидатор входного параметра folderId
-const folderInputSchema = z.object({
-  id: z.string().uuid(),
-});
-
-// 2. Создаем процедуру для чтения папки (tRPC v11 style)
-// Сначала привязываем инпут, и только потом вызывем .use() — это открывает доступ к свойству `input`
-export const folderReadProcedure = protectedProcedure
-  .input(folderInputSchema)
+// ==========================================
+// 🛡️ 1. СТРОГАЯ ПРОЦЕДУРА ДЛЯ ДЕЙСТВИЙ С САМОЙ ПАПКОЙ
+// ==========================================
+export const folderScopedProcedure = protectedProcedure
+  .input(
+    z.object({
+      id: z.string().uuid(), // Здесь папка — главный объект, строго UUID
+    })
+  )
   .use(async ({ ctx, next, input }) => {
-    // 🚀 Благодаря tRPC v11, `input.folderId` здесь строго типизирован как string!
-    const { id } = input;
+    // Никаких `??`, берем строго `id` папки
+    const folderId = input.id;
 
-    const access = await ctx.folderService.checkFolderAccess(id, ctx.userId);
+    const access = await ctx.folderService.checkFolderAccess(
+      folderId,
+      ctx.userId
+    );
 
     if (!access.hasAccess) {
       throw new TRPCError({
@@ -62,26 +65,61 @@ export const folderReadProcedure = protectedProcedure
       });
     }
 
-    // Обогащаем контекст для следующих шагов или самого роута
     return next({
       ctx: {
-        id,
-        folderRole: access.role, // 'owner' | 'guest'
-        folderAccessLevel: access.accessLevel, // 'read' | 'write'
+        targetFolderId: folderId,
+        folderRole: access.role!, // 'owner' | 'guest'
+        folderAccessLevel: access.accessLevel!, // 'read' | 'write'
       },
     });
   });
 
-// 3. Создаем процедуру для записи, расширяя folderReadProcedure
-export const folderWriteProcedure = folderReadProcedure.use(({ ctx, next }) => {
-  if (ctx.folderAccessLevel !== 'write') {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: 'У вас права только на чтение данных в этой папке',
+// ==========================================
+// 🛡️ 2. ГИБКАЯ ПРОЦЕДУРА ДЛЯ СВЯЗАННЫХ РЕСУРСОВ (ЗАМЕТКИ / ТЕГИ)
+// ==========================================
+export const rootOrFolderProcedure = protectedProcedure
+  .input(
+    z.object({
+      folderId: z.string().uuid().nullable().optional(), // Может быть UUID, null или undefined
+    })
+  )
+  .use(async ({ ctx, next, input }) => {
+    const { folderId } = input;
+
+    // 📥 Если folderId явно равен null или не передан — это строго Inbox!
+    // Никакой хакер не сможет подменить контекст, потому что мы проверяем именно то поле,
+    // которое отвечает за связь (внешний ключ).
+    if (folderId === null || folderId === undefined) {
+      return next({
+        ctx: {
+          targetFolderId: null,
+          folderRole: 'owner' as const,
+          folderAccessLevel: 'write' as const,
+        },
+      });
+    }
+
+    // 📁 Если folderId передан как UUID — жестко проверяем права в базе
+    const access = await ctx.folderService.checkFolderAccess(
+      folderId,
+      ctx.userId
+    );
+
+    if (!access.hasAccess) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'У вас нет доступа к этой папке',
+      });
+    }
+
+    return next({
+      ctx: {
+        targetFolderId: folderId,
+        folderRole: access.role!,
+        folderAccessLevel: access.accessLevel!,
+      },
     });
-  }
-  return next();
-});
+  });
 
 // 3. Создаем middleware для проверки роли АДМИНИСТРАТОРА
 const isAdmin = t.middleware(({ ctx, next }) => {

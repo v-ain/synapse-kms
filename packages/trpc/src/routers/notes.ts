@@ -1,4 +1,4 @@
-import { router, protectedProcedure } from '../trpc.js';
+import { router, protectedProcedure, rootOrFolderProcedure } from '../trpc.js';
 import { z } from 'zod';
 
 // Импортируем Zod-схему, которую вы создали ранее в shared
@@ -19,30 +19,25 @@ export const notesRouter = router({
       return await ctx.noteService.getNotes(input, ctx.userId);
     }),
 
-  // Оставляем базовую protectedProcedure, так как для Inbox (folderId: null) мидлвар не нужен
-  create: protectedProcedure
-    .input(CreateNoteSchema)
+  create: rootOrFolderProcedure
+    .input(CreateNoteSchema) // Склеиваем схемы. На входе будет полный контракт заметки
     .mutation(async ({ input, ctx }) => {
-      const { folderId } = input;
-
-      // ЕСЛИ ЗАМЕТКА СОЗДАЕТСЯ В ПАПКЕ — проверяем права на запись
-      if (folderId) {
-        const access = await ctx.folderService.checkFolderAccess(
-          folderId,
-          ctx.userId
-        );
-
-        // Если доступа нет ВООБЩЕ или уровень прав только 'read' (гость без права редактирования)
-        if (!access.hasAccess || access.accessLevel !== 'write') {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'У вас нет прав на создание заметок в этой папке',
-          });
-        }
+      // 1. Проверяем уровень доступа, который мидлвар УЖЕ посчитал (для папки или для Inbox)
+      if (ctx.folderAccessLevel !== 'write') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'У вас нет прав на создание заметок в этой папке',
+        });
       }
 
-      // ЕСЛИ ЭТО INBOX (folderId === null) — проверка пропускается, это личная зона
-      const newNote = await ctx.noteService.createNote(input, ctx.userId);
+      // 2. Вызываем сервис заметок. Данные о папке берем строго из контекста безопасности!
+      const newNote = await ctx.noteService.createNote(
+        {
+          ...input,
+          folderId: ctx.targetFolderId, // 🛡️ Передаем проверенный UUID или null (для Inbox)
+        },
+        ctx.userId
+      );
 
       return newNote;
     }),
