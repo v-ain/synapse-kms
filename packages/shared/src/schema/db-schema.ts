@@ -11,6 +11,7 @@ import {
   index,
   pgEnum,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 // СХЕМА ТАБЛИЦЫ USERS
@@ -77,10 +78,20 @@ export const notesTable = pgTable(
 );
 
 // СХЕМА ТАБЛИЦЫ TAGS
-export const tagsTable = pgTable('tags', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: varchar('name', { length: 50 }).unique().notNull(),
-});
+export const tagsTable = pgTable(
+  'tags',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: varchar('name', { length: 50 }).notNull(),
+    userId: uuid('user_id')
+      .references(() => usersTable.id, { onDelete: 'cascade' })
+      .notNull(),
+  },
+  (t) => [
+    // ТИТАНОВАЯ БРОНЯ: Имя тега уникально ТОЛЬКО для конкретного юзера!
+    uniqueIndex('unique_user_tag_name').on(t.userId, t.name),
+  ]
+);
 
 // Сводная таблица связей заметок и тегов (Many-to-Many)
 export const notesTagsTable = pgTable(

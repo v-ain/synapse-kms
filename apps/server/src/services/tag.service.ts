@@ -13,25 +13,29 @@ import { ITagService } from '@synapse-kms/trpc';
 export class TagService implements ITagService {
   constructor(private db: DrizzleDB) {}
 
-  // смарт-метод привязки тега
+  // 1. СМАРТ-МЕТОД ПРИВЯЗКИ ТЕГА (С полной изоляцией пользователей)
   async attachTag(
     payload: AttachTagPayload,
     userId: string
   ): Promise<{ success: true; tag: Tag }> {
-    // Из payload уже прилетает очищенный, lowercase тег благодаря Zod .transform()!
     const { noteId, tagName } = payload;
 
-    // 1. Вставляем тег, если его нет, либо берем существующий (смарт-инсерт)
+    // Вставляем тег для КОНКРЕТНОГО юзера.
+    // Если у этого юзера уже есть такой тег — onConflictDoUpdate просто вытащит его ID
     const [tag] = await this.db
       .insert(tagsTable)
-      .values({ name: tagName })
+      .values({
+        name: tagName,
+        userId: userId, // 🛡️ Изоляция
+      })
       .onConflictDoUpdate({
-        target: tagsTable.name,
-        set: { name: tagName }, // фиктивный апдейт для получения ID
+        // Указываем таргет: комбинация колонок нашего уникального индекса
+        target: [tagsTable.userId, tagsTable.name],
+        set: { name: tagName }, // фиктивный апдейт для возврата .returning()
       })
       .returning();
 
-    // 2. Вставляем связь (.onConflictDoNothing(), чтобы не словить ошибку дубликата связи)
+    // Вставляем связь с заметкой
     await this.db
       .insert(notesTagsTable)
       .values({
@@ -43,14 +47,12 @@ export class TagService implements ITagService {
     return { success: true, tag };
   }
 
-  // Метод получения всех уникальных тегов пользователя со счётчиком заметок
+  // 2. ПОЛУЧЕНИЕ ТЕГОВ ПОЛЬЗОВАТЕЛЯ С ДИНАМИЧЕСКИМ СЧЕТЧИКОМ COUNT
   async getUserTags(userId: string): Promise<TagWithCount[]> {
     const result = await this.db
       .select({
         id: tagsTable.id,
         name: tagsTable.name,
-        // Магия Drizzle: функция count() из drizzle-orm автоматически
-        // типизируется и возвращает number, а не строку!
         notesCount: count(notesTagsTable.noteId),
       })
       .from(tagsTable)
@@ -58,14 +60,13 @@ export class TagService implements ITagService {
       .innerJoin(notesTable, eq(notesTagsTable.noteId, notesTable.id))
       .where(
         and(
-          eq(notesTable.userId, userId),
+          eq(tagsTable.userId, userId), // 🛡️ Тянем только теги этого юзера
           eq(notesTable.isDeleted, false),
           eq(notesTable.isArchived, false)
         )
       )
       .groupBy(tagsTable.id, tagsTable.name);
 
-    // Возвращаем результат напрямую, база данных уже всё посчитала в идеальном виде!
     return result;
   }
 }

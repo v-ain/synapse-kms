@@ -70,7 +70,7 @@ export type DeleteFolderPayload = z.infer<typeof DeleteFolderSchema>;
 // ДОМЕННЫЕ ТИПЫ (Авто-вывод из базы данных)
 // ==========================================
 
-export type Tag = InferSelectModel<typeof tagsTable>;
+export type Tag = Omit<InferSelectModel<typeof tagsTable>, 'userId'>;
 
 // Создаем расширенный UI/DTO тип: берем все поля Tag и подмешиваем notes_count
 export interface TagWithCount extends Tag {
