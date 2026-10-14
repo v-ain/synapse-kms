@@ -1,4 +1,9 @@
-import { router, protectedProcedure, rootOrFolderProcedure } from '../trpc.js';
+import {
+  router,
+  protectedProcedure,
+  rootOrFolderProcedure,
+  noteAccessProcedure,
+} from '../trpc.js';
 import { z } from 'zod';
 
 // Импортируем Zod-схему, которую вы создали ранее в shared
@@ -43,19 +48,15 @@ export const notesRouter = router({
     }),
 
   // Получение одной заметки по ID
-  getById: protectedProcedure
-    .input(
-      z.object({
-        id: z.string().uuid({ message: 'Некорректный формат ID заметки' }),
-      })
-    )
+  getById: noteAccessProcedure // 🚀 Защищаем шлюзом проверки папки/авторства
     .query(async ({ input, ctx }) => {
-      const note = await ctx.noteService.getNoteById(input.id, ctx.userId);
+      // Метод просто забирает данные, так как охрана на входе уже всё проверила
+      const note = await ctx.noteService.getNoteById(input.id);
 
       if (!note) {
         throw new TRPCError({
           code: 'NOT_FOUND',
-          message: 'Заметка не найдена',
+          message: 'Заметка не найдена в базе данных',
         });
       }
 
@@ -96,20 +97,39 @@ export const notesRouter = router({
       };
     }),
 
-  // 💾 Атомарное обновление контента с проверкой версии
-  update: protectedProcedure
+  // Атомарное обновление контента с проверкой версии
+  update: noteAccessProcedure // ОХРАНА: Проверяет существование заметки и доступ к папке
     .input(UpdateNotePayloadSchema)
     .mutation(async ({ input, ctx }) => {
-      // Вызываем метод сервиса, который проверяет версию в БД перед UPDATE
-      const note = await ctx.noteService.updateNote(input, ctx.userId);
-
-      if (!note) {
+      // 1. БЕЗОПАСНОСТЬ СЛОЯ: Гости с уровнем доступа 'read' не могут изменять контент!
+      if (ctx.folderAccessLevel !== 'write') {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Заметка не найдена или у вас нет прав',
+          code: 'FORBIDDEN',
+          message: 'У вас есть права только на чтение заметок в этой папке',
         });
       }
 
-      return note;
+      // 2. Передаем инпут в сервис (без userId, доверяя мидлвару)
+      const result = await ctx.noteService.updateNote(input);
+
+      if (!result.note) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Заметка не найдена в базе данных',
+        });
+      }
+
+      // 3. ⚠️ ОБРАБОТКА КОНФЛИКТА СИНХРОНИЗАЦИИ (Честный LWW)
+      if (result.isRejected) {
+        throw new TRPCError({
+          code: 'CONFLICT', // Отдаем статус 409
+          message:
+            'Изменения отклонены. В базе данных уже есть более свежая версия документа.',
+          // Прокидываем актуальную версию заметки, чтобы клиент мог перетереть свой локальный кэш
+          cause: result.note,
+        });
+      }
+
+      return result.note;
     }),
 });

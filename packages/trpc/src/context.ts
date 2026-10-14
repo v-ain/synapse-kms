@@ -16,6 +16,9 @@ import type {
 } from '@synapse-kms/shared';
 
 export interface INoteService {
+  getNoteMeta(
+    id: string
+  ): Promise<{ userId: string; folderId: string | null } | null>;
   /**
    * Получение пагинированного списка превью заметок (даты: string)
    */
@@ -27,7 +30,7 @@ export interface INoteService {
   /**
    * Получение полной заметки по ID (даты: string)
    */
-  getNoteById(id: string, userId: string): Promise<Note | null>;
+  getNoteById(id: string): Promise<Note | null>;
 
   /**
    * Создание новой заметки (даты: string)
@@ -37,7 +40,7 @@ export interface INoteService {
   /**
    * Обновление данных заметки с проверкой версии (Optimistic Lock)
    */
-  updateNote(payload: UpdateNotePayload, userId: string): Promise<Note | null>;
+  updateNote(payload: UpdateNotePayload): Promise<Note | null>;
 
   /**
    * Архивация заметки

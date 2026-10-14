@@ -40,6 +40,54 @@ const isAuthed = t.middleware(({ ctx, next }) => {
 
 export const protectedProcedure = t.procedure.use(isAuthed);
 
+// ПРОЦЕДУРА ПРОВЕРКИ ДОСТУПА К КОНКРЕТНОЙ ЗАМЕТКЕ (tRPC v11)
+export const noteAccessProcedure = protectedProcedure
+  .input(z.object({ id: z.string().uuid() }))
+  .use(async ({ ctx, next, input }) => {
+    // Вызываем метод через уже существующий в контексте noteService!
+    const noteMeta = await ctx.noteService.getNoteMeta(input.id);
+
+    if (!noteMeta) {
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Заметка не найдена' });
+    }
+
+    // Если это Inbox — читать может только автор
+    if (!noteMeta.folderId) {
+      if (noteMeta.userId !== ctx.userId) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'У вас нет доступа к этой личной заметке',
+        });
+      }
+      return next({
+        ctx: {
+          folderRole: 'owner' as const,
+          folderAccessLevel: 'write' as const,
+        },
+      });
+    }
+
+    // Если это папка — делегируем безопасность папкам
+    const access = await ctx.folderService.checkFolderAccess(
+      noteMeta.folderId,
+      ctx.userId
+    );
+
+    if (!access.hasAccess) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'У вас нет доступа к папке, содержащей эту заметку',
+      });
+    }
+
+    return next({
+      ctx: {
+        folderRole: access.role!,
+        folderAccessLevel: access.accessLevel!,
+      },
+    });
+  });
+
 // ==========================================
 // 🛡️ 1. СТРОГАЯ ПРОЦЕДУРА ДЛЯ ДЕЙСТВИЙ С САМОЙ ПАПКОЙ
 // ==========================================

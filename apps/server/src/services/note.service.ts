@@ -35,6 +35,21 @@ export class NoteService implements INoteService {
   // Внедряем типизированный инстанс 'db' вместо сырого 'sql'
   constructor(private db: DrizzleDB) {}
 
+  // Получить только метаданные для проверки безопасности
+  async getNoteMeta(
+    id: string
+  ): Promise<{ userId: string; folderId: string | null } | null> {
+    const meta = await this.db.query.notesTable.findFirst({
+      where: (notes, { and, eq }) =>
+        and(eq(notes.id, id), eq(notes.isDeleted, false)),
+      columns: {
+        userId: true,
+        folderId: true,
+      },
+    });
+
+    return meta || null;
+  }
   // 1. ПОЛУЧИТЬ КУРСОРНУЮ ПАГИНАЦИЮ ЗАМЕТОК (Highload O(1) с тегами)
   async getNotes(
     query: GetNotesQueryParams,
@@ -179,17 +194,14 @@ export class NoteService implements INoteService {
     };
   }
 
-  // 2. ПОЛУЧИТЬ КОНТЕНТ ЗАМЕТКИ ПО ID
-  async getNoteById(id: string, userId: string): Promise<NoteWithTags | null> {
+  // 2. ПОЛУЧИТЬ КОНТЕНТ ЗАМЕТКИ ПО ID (Права проверены на уровне API слоя)
+  async getNoteById(id: string): Promise<NoteWithTags | null> {
     const noteData = await this.db.query.notesTable.findFirst({
       where: (notes, { and, eq }) =>
         and(
           eq(notes.id, id),
-          eq(notes.userId, userId),
-          eq(notes.isArchived, false),
-          eq(notes.isDeleted, false)
+          eq(notes.isDeleted, false) // 🚀 Убрали жесткий фильтр по userId!
         ),
-      // Включаем связи: проваливаемся через промежуточную таблицу прямо к тегу
       with: {
         notes_tags: {
           with: {
@@ -201,10 +213,8 @@ export class NoteService implements INoteService {
 
     if (!noteData) return null;
 
-    // Схлопываем вложенную структуру тегов в красивый плоский массив строк ["Важно", "Работа"]
     const tags = noteData.notes_tags.map((nt) => nt.tag.name);
 
-    // Возвращаем чистый объект, готовый для фронтенда
     return {
       id: noteData.id,
       folderId: noteData.folderId,
@@ -312,12 +322,13 @@ export class NoteService implements INoteService {
 
   /**
    * Атомарное обновление заметки на основе семантики Last-Write-Wins (LWW).
-   * Исключает race conditions на уровне HTTP без блокировки таблиц.
+   * Права доступа гарантированы вызывающим слоем API.
    */
-  async updateNote(
-    payload: UpdateNotePayload,
-    userId: string
-  ): Promise<NoteWithTags | null> {
+  async updateNote(payload: UpdateNotePayload): Promise<{
+    success: boolean;
+    isRejected: boolean;
+    note: NoteWithTags | null;
+  }> {
     const { id, clientUpdatedAt, title, content } = payload;
 
     const updateFields: Record<string, any> = {
@@ -328,39 +339,36 @@ export class NoteService implements INoteService {
     if (title !== undefined) updateFields.title = title.trim();
     if (content !== undefined) updateFields.content = content;
 
-    // 1. Атомарный апдейт на Core API
+    // 1. Атомарный апдейт с проверкой MVCC-версии
     const [updatedNote] = await this.db
       .update(notesTable)
       .set(updateFields)
       .where(
         and(
           eq(notesTable.id, id),
-          eq(notesTable.userId, userId),
+          // Запись разрешена, только если входящий таймстемп строго новее, чем в СУБД
           lt(notesTable.clientUpdatedAt, clientUpdatedAt)
         )
       )
       .returning();
 
-    // Нам в любом случае нужно вернуть заметку с тегами (хоть при успехе, хоть при фолбэке),
-    // поэтому делаем красивый реляционный запрос:
+    // 2. В ЛЮБОМ СЛУЧАЕ забираем текущие актуальные данные с тегами для синхронизации клиента
     const noteData = await this.db.query.notesTable.findFirst({
-      where: (notes, { and, eq }) =>
-        and(eq(notes.id, id), eq(notes.userId, userId)),
+      where: (notes, { eq }) => eq(notes.id, id),
       with: {
         notes_tags: {
-          with: {
-            tag: true,
-          },
+          with: { tag: true },
         },
       },
     });
 
-    if (!noteData) return null;
+    if (!noteData) {
+      return { success: false, isRejected: false, note: null };
+    }
 
-    // Схлопываем теги в плоский массив строк
+    // Схлопываем теги
     const tags = noteData.notes_tags.map((nt) => nt.tag.name);
-
-    return {
+    const mappedNote: NoteWithTags = {
       id: noteData.id,
       folderId: noteData.folderId,
       title: noteData.title,
@@ -374,5 +382,13 @@ export class NoteService implements INoteService {
       tags: tags,
       preview: (noteData.content || '').substring(0, 150),
     };
+
+    // ОПРЕДЕЛЯЕМ ИСТИННЫЙ РЕЗУЛЬТАТ LWW
+    // Если апдейт вернул пустой массив, но в базе заметка есть — значит, пришел устаревший пакет!
+    if (!updatedNote) {
+      return { success: false, isRejected: true, note: mappedNote };
+    }
+
+    return { success: true, isRejected: false, note: mappedNote };
   }
 }
