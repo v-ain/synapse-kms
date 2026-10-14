@@ -130,7 +130,6 @@ export interface ContextOptions {
   authService: IAuthService;
   tagService: ITagService;
   userService: IUserService;
-  adminService: IAdminService;
   userId: string | null;
   userRole: string | null;
   setAuthCookie?: (token: string) => void;
@@ -143,7 +142,6 @@ export function createContext(opts: ContextOptions) {
     authService: opts.authService,
     tagService: opts.tagService,
     userService: opts.userService,
-    adminService: opts.adminService,
     userId: opts.userId,
     userRole: opts.userRole,
     setAuthCookie: opts.setAuthCookie,

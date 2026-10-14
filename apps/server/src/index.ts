@@ -8,7 +8,6 @@ import { appRouter, createContext } from '@synapse-kms/trpc';
 import fastifyCookie from '@fastify/cookie';
 import { AuthService } from './services/auth.service.js';
 import { TagService } from './services/tag.service.js';
-import { AdminService } from './services/admin.service.js';
 import { UserService } from './services/user.service.js';
 
 const fastify = Fastify({ logger: true });
@@ -22,7 +21,6 @@ const authService = new AuthService(db, userService);
 const noteService = new NoteService(db);
 const folderService = new FolderService(db, userService);
 const tagService = new TagService(db);
-const adminService = new AdminService(db);
 
 // Настройки куки: HttpOnly, защита от CSRF через SameSite=Strict, кука живет 7 дней [health]
 const COOKIE_OPTIONS = {
@@ -66,7 +64,6 @@ await fastify.register(fastifyTRPCPlugin, {
         authService,
         tagService,
         userService,
-        adminService,
         userId,
         userRole,
         // 🚀 Нативное замыкание на метод setCookie от Fastify!

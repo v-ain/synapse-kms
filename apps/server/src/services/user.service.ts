@@ -1,5 +1,6 @@
+import { ne } from 'drizzle-orm';
 import { IUserService } from '@synapse-kms/trpc';
-import { UserEntity } from '@synapse-kms/shared';
+import { UserEntity, usersTable } from '@synapse-kms/shared';
 import { DrizzleDB } from '../db.js';
 
 export class UserService implements IUserService {
@@ -34,5 +35,24 @@ export class UserService implements IUserService {
       where: (users, { eq }) => eq(users.id, id),
     });
     return user || null;
+  }
+
+  /**
+   * Получить список всех пользователей системы для шеринга (исключая себя)
+   */
+  async getShareableUsers(
+    currentUserId: string
+  ): Promise<{ id: string; email: string }[]> {
+    const list = await this.db
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+      })
+      .from(usersTable)
+      .where(
+        ne(usersTable.id, currentUserId) // Защита: не показываем себя в списке
+      );
+
+    return list;
   }
 }
