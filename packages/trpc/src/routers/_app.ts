@@ -3,14 +3,14 @@ import { notesRouter } from './notes.js';
 import { authRouter } from './auth.js';
 import { foldersRouter } from './folders.js';
 import { tagsRouter } from './tags.js';
-import { adminRouter } from './admin.js';
+import { usersRouter } from './users.js';
 
 export const appRouter = router({
   auth: authRouter,
   notes: notesRouter,
   folders: foldersRouter,
   tags: tagsRouter,
-  admin: adminRouter,
+  users: usersRouter,
 });
 
 // Экспортируем ТИП роутера для фронтенда

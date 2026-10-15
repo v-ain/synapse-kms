@@ -1,2 +1,3 @@
-export * from './db-schema.js';
+export * from './constants.js';
 export * from './types.js';
+export * from './schema/index.js';

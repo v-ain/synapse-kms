@@ -4,6 +4,7 @@ import { CreateFolderForm } from '@/components/notes/CreateFolderForm';
 import { TagCloud } from '@/components/tags/TagCloud';
 import { Button } from '@/components/ui/button';
 import { Folder, Inbox, Layers, Trash2 } from 'lucide-react';
+import { ShareFolderModal } from '../notes/ShareFolderModal';
 
 export function Sidebar() {
   const { activeFilter, activeFolderId, setActiveFolder, setFilter } =
@@ -85,6 +86,12 @@ export function Sidebar() {
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
+
+                    {/* Модалка сама содержит внутри себя кнопку-иконку и триггер Radix */}
+                    <ShareFolderModal
+                      folderId={folder.id}
+                      folderTitle={folder.title}
+                    />
                   </div>
                 );
               })}
@@ -95,7 +102,6 @@ export function Sidebar() {
         {/* РАЗДЕЛ ТЕГОВ */}
         <TagCloud />
       </div>
-
       {/* ИЗОЛИРОВАННАЯ ФОРМА СОЗДАНИЯ ПАПОК (Надежно прижата к самому низу) */}
       <CreateFolderForm />
     </div>

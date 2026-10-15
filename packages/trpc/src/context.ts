@@ -4,6 +4,7 @@ import type {
   CreateNotePayload,
   DeleteFolderPayload,
   Folder,
+  FolderAccessResult,
   GetNotesQueryParams,
   Note,
   NotePreview,
@@ -11,9 +12,13 @@ import type {
   Tag,
   TagWithCount,
   UpdateNotePayload,
+  UserEntity,
 } from '@synapse-kms/shared';
 
 export interface INoteService {
+  getNoteMeta(
+    id: string
+  ): Promise<{ userId: string; folderId: string | null } | null>;
   /**
    * Получение пагинированного списка превью заметок (даты: string)
    */
@@ -25,7 +30,7 @@ export interface INoteService {
   /**
    * Получение полной заметки по ID (даты: string)
    */
-  getNoteById(id: string, userId: string): Promise<Note | null>;
+  getNoteById(id: string): Promise<Note | null>;
 
   /**
    * Создание новой заметки (даты: string)
@@ -35,7 +40,7 @@ export interface INoteService {
   /**
    * Обновление данных заметки с проверкой версии (Optimistic Lock)
    */
-  updateNote(payload: UpdateNotePayload, userId: string): Promise<Note | null>;
+  updateNote(payload: UpdateNotePayload): Promise<Note | null>;
 
   /**
    * Архивация заметки
@@ -73,6 +78,28 @@ export interface IFolderService {
    * Возвращает true, если папка успешно удалена, либо false, если она не найдена/удалена ранее
    */
   deleteFolder(payload: DeleteFolderPayload, userId: string): Promise<boolean>;
+
+  /**
+   * Проверка прав доступа пользователя к конкретной папке (Владелец / Шеринг)
+   */
+  checkFolderAccess(
+    folderId: string,
+    userId: string
+  ): Promise<FolderAccessResult>;
+
+  /**
+   * Расшаривание папки другому пользователю по его Email
+   */
+  shareFolder(payload: {
+    folderId: string;
+    ownerId: string;
+    targetEmail: string; // Меняем targetUserId на targetEmail для безопасности
+    accessLevel: 'read' | 'write';
+  }): Promise<{
+    success: boolean;
+    sharedWith: string;
+    accessLevel: 'read' | 'write';
+  }>;
 }
 
 export interface IAuthService {
@@ -87,6 +114,12 @@ export interface ITagService {
   getUserTags(userId: string): Promise<TagWithCount[]>;
 }
 
+export interface IUserService {
+  findById(id: string): Promise<UserEntity | null>;
+  findByEmail(email: string): Promise<UserEntity | null>;
+  getUserProfile(id: string): Promise<Omit<UserEntity, 'passwordHash'> | null>;
+}
+
 export interface IAdminService {
   getNotes(query: any, userId: string): Promise<any>;
 }
@@ -96,7 +129,7 @@ export interface ContextOptions {
   folderService: IFolderService;
   authService: IAuthService;
   tagService: ITagService;
-  adminService: IAdminService;
+  userService: IUserService;
   userId: string | null;
   userRole: string | null;
   setAuthCookie?: (token: string) => void;
@@ -108,7 +141,7 @@ export function createContext(opts: ContextOptions) {
     folderService: opts.folderService,
     authService: opts.authService,
     tagService: opts.tagService,
-    adminService: opts.adminService,
+    userService: opts.userService,
     userId: opts.userId,
     userRole: opts.userRole,
     setAuthCookie: opts.setAuthCookie,

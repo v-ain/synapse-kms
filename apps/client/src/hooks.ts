@@ -216,3 +216,23 @@ export function useUpdateNote() {
 export function useTags() {
   return trpc.tags.list.useQuery();
 }
+
+export function useShareFolder() {
+  // Получаем доступ к типизированному контексту утилит tRPC
+  const utils = trpc.useUtils();
+
+  return trpc.folders.shareFolder.useMutation({
+    onSuccess: () => {
+      utils.folders.getFolders.invalidate();
+
+      // Здесь же при необходимости можно вызвать методы из Zustand стора,
+      // например, закрыть модалку шеринга:
+      // setShareModalOpen(false);
+      console.log('Доступ успешно предоставлен:', 'data.recordId');
+    },
+    onError: (error) => {
+      // Ловим ошибки валидации Zod или нарушения уникальности индексов базы СУБД
+      alert(`Ошибка синхронизации прав: ${error.message}`);
+    },
+  });
+}

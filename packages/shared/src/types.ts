@@ -1,11 +1,22 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
-import { foldersTable, notesTable, tagsTable } from './db-schema.js';
+import {
+  foldersTable,
+  notesTable,
+  tagsTable,
+  usersTable,
+} from './schema/db-schema.js';
 import { NOTE_LIMITS } from './constants.js';
 
 export type Note = InferSelectModel<typeof notesTable> & {
   preview?: string;
   tags?: string[];
+};
+
+// Точная и строгая структура заметки, которую возвращает метод getNoteById
+export type NoteWithTags = Note & {
+  preview: string; // Переопределяем как обязательное поле
+  tags: string[]; // Переопределяем как обязательное поле
 };
 
 // Превью тоже автоматически использует string для дат
@@ -25,6 +36,16 @@ export type NoteWithAuthor = Pick<
 // export type NotesFilter = 'all' | 'inbox' | 'folder';
 
 export type Folder = InferSelectModel<typeof foldersTable>;
+
+export type FolderWithRole = Folder & {
+  isShared: boolean;
+};
+
+export interface FolderAccessResult {
+  hasAccess: boolean;
+  role: 'owner' | 'guest' | null;
+  accessLevel?: 'read' | 'write';
+}
 
 // Схема для создания папки
 export const CreateFolderSchema = z.object({
@@ -49,7 +70,7 @@ export type DeleteFolderPayload = z.infer<typeof DeleteFolderSchema>;
 // ДОМЕННЫЕ ТИПЫ (Авто-вывод из базы данных)
 // ==========================================
 
-export type Tag = InferSelectModel<typeof tagsTable>;
+export type Tag = Omit<InferSelectModel<typeof tagsTable>, 'userId'>;
 
 // Создаем расширенный UI/DTO тип: берем все поля Tag и подмешиваем notes_count
 export interface TagWithCount extends Tag {
@@ -166,3 +187,5 @@ export const authCredentialsSchema = z.object({
 });
 
 export type AuthCredentials = z.infer<typeof authCredentialsSchema>;
+
+export type UserEntity = InferSelectModel<typeof usersTable>;
