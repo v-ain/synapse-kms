@@ -35,10 +35,18 @@ export type NoteWithAuthor = Pick<
 
 // export type NotesFilter = 'all' | 'inbox' | 'folder';
 
+// Базовая структура из БД
 export type Folder = InferSelectModel<typeof foldersTable>;
 
-export type FolderWithRole = Folder & {
+// Полноценный DTO, который реально возвращает репозиторий/сервис чтений
+export type FolderDTO = Folder & {
+  notesCount: number;
   isShared: boolean;
+};
+
+// Расширенный вариант, если в будущем для ACL понадобится роль
+export type FolderWithRole = FolderDTO & {
+  role: 'owner' | 'guest' | null;
 };
 
 export interface FolderAccessResult {

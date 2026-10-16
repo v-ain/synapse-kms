@@ -5,6 +5,7 @@ import type {
   DeleteFolderPayload,
   Folder,
   FolderAccessResult,
+  FolderDTO,
   GetNotesQueryParams,
   Note,
   NotePreview,
@@ -66,7 +67,7 @@ export interface IFolderService {
   /**
    * Получение списка всех активных (не удаленных) папок пользователя
    */
-  getFolders(userId: string): Promise<Folder[]>;
+  getFolders(userId: string): Promise<FolderDTO[]>;
 
   /**
    * Создание новой папки
