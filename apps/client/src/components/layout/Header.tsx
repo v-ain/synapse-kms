@@ -19,6 +19,7 @@ import {
   Monitor,
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
+import { UserLayout } from '../users/UserLayout';
 
 interface HeaderProps {
   onLogout: () => void;
@@ -68,7 +69,7 @@ export function Header({ onLogout }: HeaderProps) {
           <span>Облако синапсов активно</span>
         </div>
       </div>
-
+      <UserLayout />
       {/* Правая часть: Назад, Переключатель темы и Выход */}
       <div className="flex items-center gap-2">
         {activeNoteId && (
