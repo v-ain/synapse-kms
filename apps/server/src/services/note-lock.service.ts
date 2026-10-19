@@ -1,8 +1,9 @@
 import type { Redis } from 'ioredis';
 import { INoteLockService, LockAcquireResult } from '@synapse-kms/trpc';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { NoteLockInfo, usersTable } from '@synapse-kms/shared';
+import { LOCK_EVENTS, NoteLockInfo, usersTable } from '@synapse-kms/shared';
 import { eq } from 'drizzle-orm';
+import { globalEventEmitter } from 'src/infrastructure/events.js';
 
 export class NoteLockService implements INoteLockService {
   private readonly LOCK_TTL = 30; // Блокировка выдается на 30 секунд
@@ -32,6 +33,10 @@ export class NoteLockService implements INoteLockService {
     );
 
     if (acquired === 'OK') {
+      // Фоновое неблокирующее событие для SSE (Fire-and-Forget)
+      // Мы НЕ пишем await перед этим вызовом, ответ клиенту улетит мгновенно!
+      this.notifyLockStatusChanged(noteId);
+
       return { success: true, lockedBy: userId, expiresIn: this.LOCK_TTL };
     }
 
@@ -41,6 +46,9 @@ export class NoteLockService implements INoteLockService {
     // Если замок и так наш (например, страница перезагрузилась), просто продлеваем его
     if (currentLockOwner === userId) {
       await this.redis.expire(key, this.LOCK_TTL);
+
+      // Тоже фоново уведомляем, если нужно обновить TTL у других
+      this.notifyLockStatusChanged(noteId);
       return { success: true, lockedBy: userId, expiresIn: this.LOCK_TTL };
     }
 
@@ -63,6 +71,8 @@ export class NoteLockService implements INoteLockService {
     // Продлеваем только если замок всё еще принадлежит этому пользователю
     if (currentLockOwner === userId) {
       await this.redis.expire(key, this.LOCK_TTL);
+      // Тоже фоново уведомляем, если нужно обновить TTL у других
+      this.notifyLockStatusChanged(noteId);
       return true;
     }
 
@@ -76,7 +86,6 @@ export class NoteLockService implements INoteLockService {
     const key = this.getLockKey(noteId);
 
     // Lua-скрипт гарантирует: мы удалим ключ только если его значение совпадает с userId.
-    // Это защищает от ситуации, когда у Юзера А протух TTL, Юзер Б взял блок, а Юзер А вызвал release().
     const luaScript = `
       if redis.call("get", KEYS[1]) == ARGV[1] then
         return redis.call("del", KEYS[1])
@@ -85,7 +94,13 @@ export class NoteLockService implements INoteLockService {
       end
     `;
 
-    await this.redis.eval(luaScript, 1, key, userId);
+    // Сохраняем результат: 1 — замок успешно удален, 0 — замок не наш/не существовал
+    const result = await this.redis.eval(luaScript, 1, key, userId);
+
+    // Если замок реально освобожден нами — фоново пушим в SSE статус "разблокировано"
+    if (result === 1) {
+      this.notifyLockStatusChanged(noteId);
+    }
   }
 
   /**
@@ -136,5 +151,80 @@ export class NoteLockService implements INoteLockService {
     }
 
     return false;
+  }
+
+  /**
+   * Пакетное получение информации о блокировках для списка заметок (Защита от N+1)
+   */
+  async getLocksForNotes(
+    noteIds: string[]
+  ): Promise<Record<string, NoteLockInfo>> {
+    const result: Record<string, NoteLockInfo> = {};
+
+    if (!noteIds || noteIds.length === 0) return result;
+
+    // 1. Формируем ключи для Redis
+    const lockKeys = noteIds.map((id) => `lock:note:${id}`);
+
+    // 2. Атомарно забираем владельцев замков через MGET
+    const lockedUsers = await this.redis.mget(...lockKeys);
+
+    // 3. Через Pipeline забираем TTL всех ключей за один сетевой круг
+    const pipeline = this.redis.pipeline();
+    lockKeys.forEach((key) => pipeline.ttl(key));
+    const ttlResults = await pipeline.exec(); // [[err, ttl], [err, ttl], ...]
+
+    // Используем классический цикл для сопоставления данных
+    for (let i = 0; i < noteIds.length; i++) {
+      const noteId = noteIds[i];
+      const lockedBy = lockedUsers[i];
+
+      // В ioredis результат пайплайна возвращается в виде массива [error, result]
+      const ttlResult = ttlResults?.[i];
+      const ttl = ttlResult && !ttlResult[0] ? (ttlResult[1] as number) : -2;
+
+      // Если замок есть в Redis и он активен (ttl > 0)
+      if (lockedBy && ttl > 0) {
+        // Чтобы не спамить базу тяжелыми SELECT к usersTable ради имен в цикле,
+        // пока ставим заглушку "Коллега". Когда прикрутим SSE, имя будет прилетать в событии.
+        result[noteId] = {
+          isLocked: true,
+          lockedBy,
+          lockedByName: 'Коллега',
+          expiresAt: Date.now() + ttl * 1000,
+        };
+      } else {
+        result[noteId] = {
+          isLocked: false,
+          lockedBy: null,
+          lockedByName: null,
+          expiresAt: null,
+        };
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Вспомогательный приватный метод для фонового пуша в SSE
+   */
+  private async notifyLockStatusChanged(noteId: string): Promise<void> {
+    try {
+      // Спокойно в фоне собираем полноценное DTO (включая SELECT из Postgres внутри getLockInfo)
+      const lockInfo = await this.getLockInfo(noteId);
+
+      // Генерируем событие для шины
+      globalEventEmitter.emit(LOCK_EVENTS.LOCK_UPDATED, {
+        noteId,
+        lock: lockInfo,
+      });
+    } catch (error) {
+      // Обязательно логируем ошибки фонового процесса, чтобы они не роняли Node.js
+      console.error(
+        `[SSE-Notification-Error] Failed for note ${noteId}:`,
+        error
+      );
+    }
   }
 }

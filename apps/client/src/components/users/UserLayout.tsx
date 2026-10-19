@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
 import { trpc } from '@/utils/trpc';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useLockSubscription } from '@/hooks/useLockSubscription';
 
 export function UserLayout() {
   const setProfile = useAuthStore((state) => state.setProfile);
   const clearProfile = useAuthStore((state) => state.clearProfile);
   const isInitialized = useAuthStore((state) => state.isInitialized);
 
+  useLockSubscription();
   // Запрашиваем профиль. tRPC автоматически прокинет HttpOnly куки с запросом.
   const {
     data: user,

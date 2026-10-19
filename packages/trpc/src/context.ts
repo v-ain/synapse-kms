@@ -1,3 +1,4 @@
+import type { EventEmitter } from 'events';
 import type {
   AttachTagPayload,
   BulkMovePayload,
@@ -152,6 +153,8 @@ export interface INoteLockService {
   isLockedByOthers(noteId: string, userId: string): Promise<boolean>;
 
   getLockInfo(noteId: string): Promise<NoteLockInfo>;
+
+  getLocksForNotes(noteIds: string[]): Promise<Record<string, NoteLockInfo>>;
 }
 
 export interface ContextOptions {
@@ -161,6 +164,7 @@ export interface ContextOptions {
   tagService: ITagService;
   userService: IUserService;
   noteLockService: INoteLockService;
+  eventEmitter: EventEmitter;
   userId: string | null;
   userRole: string | null;
   setAuthCookie?: (token: string) => void;
@@ -174,6 +178,7 @@ export function createContext(opts: ContextOptions) {
     tagService: opts.tagService,
     userService: opts.userService,
     noteLockService: opts.noteLockService,
+    eventEmitter: opts.eventEmitter,
     userId: opts.userId,
     userRole: opts.userRole,
     setAuthCookie: opts.setAuthCookie,

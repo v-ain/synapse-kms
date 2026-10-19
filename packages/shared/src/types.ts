@@ -50,6 +50,11 @@ export type NotePreviewDTO = Omit<Note, 'content' | 'isDeleted'> & {
   lock: NoteLockInfo;
 };
 
+// Константы событий, чтобы не опечататься
+export const LOCK_EVENTS = {
+  LOCK_UPDATED: 'LOCK_UPDATED', // Вызывается при acquire, renew и release
+};
+
 export type NoteWithAuthor = Pick<
   Note,
   'id' | 'title' | 'created_at' | 'updated_at' | 'preview'

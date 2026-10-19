@@ -187,13 +187,29 @@ export class NoteService implements INoteService {
     const hasMore = rawNotes.length > parsedLimit;
     const items = hasMore ? rawNotes.slice(0, parsedLimit) : rawNotes;
 
+    // НАЧАЛО ОБОГАЩЕНИЯ: Вытягиваем замки пачкой за 0.2ms
+    const noteIds = items.map((note) => note.id);
+    const locksMap = await this.noteLockService.getLocksForNotes(noteIds);
+
+    // Маппим элементы, внедряя лок-информацию в каждую NotePreview карточку
+    const enrichedItems = items.map((note) => ({
+      ...note,
+      lock: locksMap[note.id] || {
+        isLocked: false,
+        lockedBy: null,
+        lockedByName: null,
+        expiresAt: null,
+      },
+    }));
+    // КОНЕЦ ОБОГАЩЕНИЯ
+
     let nextCursor: string | null = null;
-    if (items.length > 0) {
-      nextCursor = items[items.length - 1].clientUpdatedAt;
+    if (enrichedItems.length > 0) {
+      nextCursor = enrichedItems[enrichedItems.length - 1].clientUpdatedAt;
     }
 
     return {
-      items,
+      items: enrichedItems, // Возвращаем обогащенный массив
       nextCursor: hasMore ? nextCursor : null,
       hasMore: hasMore,
     };

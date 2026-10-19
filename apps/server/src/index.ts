@@ -11,6 +11,7 @@ import { TagService } from './services/tag.service.js';
 import { UserService } from './services/user.service.js';
 import { redis } from './infrastructure/redis.js';
 import { NoteLockService } from './services/note-lock.service.js';
+import { globalEventEmitter } from './infrastructure/events.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -70,6 +71,7 @@ await fastify.register(fastifyTRPCPlugin, {
         authService,
         tagService,
         userService,
+        eventEmitter: globalEventEmitter,
         userId,
         userRole,
         // 🚀 Нативное замыкание на метод setCookie от Fastify!
