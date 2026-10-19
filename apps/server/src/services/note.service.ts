@@ -26,14 +26,19 @@ import type {
   NotePreview,
   UpdateNotePayload,
   NoteWithTags,
+  NoteDTO,
 } from '@synapse-kms/shared';
 
-import { INoteService } from '@synapse-kms/trpc';
+import { INoteLockService, INoteService } from '@synapse-kms/trpc';
 import { DrizzleDB } from 'src/db.js';
+import { TRPCError } from '@trpc/server';
 
 export class NoteService implements INoteService {
   // Внедряем типизированный инстанс 'db' вместо сырого 'sql'
-  constructor(private db: DrizzleDB) {}
+  constructor(
+    private db: DrizzleDB,
+    private readonly noteLockService: INoteLockService
+  ) {}
 
   // Получить только метаданные для проверки безопасности
   async getNoteMeta(
@@ -195,7 +200,7 @@ export class NoteService implements INoteService {
   }
 
   // 2. ПОЛУЧИТЬ КОНТЕНТ ЗАМЕТКИ ПО ID (Права проверены на уровне API слоя)
-  async getNoteById(id: string): Promise<NoteWithTags | null> {
+  async getNoteById(id: string): Promise<NoteDTO | null> {
     const noteData = await this.db.query.notesTable.findFirst({
       where: (notes, { and, eq }) =>
         and(
@@ -213,6 +218,9 @@ export class NoteService implements INoteService {
 
     if (!noteData) return null;
 
+    // Заглядываем в Redis за статусом аренды замка
+    const lockInfo = await this.noteLockService.getLockInfo(id);
+
     const tags = noteData.notes_tags.map((nt) => nt.tag.name);
 
     return {
@@ -228,6 +236,8 @@ export class NoteService implements INoteService {
       updatedAt: noteData.updatedAt,
       tags: tags,
       preview: (noteData.content || '').substring(0, 150),
+      // Вживляем статус блокировки в DTO ответа!
+      lock: lockInfo,
     };
   }
 
@@ -324,12 +334,30 @@ export class NoteService implements INoteService {
    * Атомарное обновление заметки на основе семантики Last-Write-Wins (LWW).
    * Права доступа гарантированы вызывающим слоем API.
    */
-  async updateNote(payload: UpdateNotePayload): Promise<{
+  async updateNote(
+    payload: UpdateNotePayload,
+    userId: string
+  ): Promise<{
     success: boolean;
     isRejected: boolean;
     note: NoteWithTags | null;
   }> {
     const { id, clientUpdatedAt, title, content } = payload;
+
+    const noteId = id;
+    // Делегируем проверку специализированному сервису блокировок
+    const isLocked = await this.noteLockService.isLockedByOthers(
+      noteId,
+      userId
+    );
+
+    if (isLocked) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message:
+          'Заметка заблокирована другим пользователем. Изменения отклонены.',
+      });
+    }
 
     const updateFields: Record<string, any> = {
       clientUpdatedAt,

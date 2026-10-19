@@ -4,6 +4,7 @@ import { authRouter } from './auth.js';
 import { foldersRouter } from './folders.js';
 import { tagsRouter } from './tags.js';
 import { usersRouter } from './users.js';
+import { notesLockRouter } from './note-lock.js';
 
 export const appRouter = router({
   auth: authRouter,
@@ -11,6 +12,7 @@ export const appRouter = router({
   folders: foldersRouter,
   tags: tagsRouter,
   users: usersRouter,
+  notesLock: notesLockRouter,
 });
 
 // Экспортируем ТИП роутера для фронтенда

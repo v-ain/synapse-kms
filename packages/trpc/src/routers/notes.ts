@@ -110,7 +110,7 @@ export const notesRouter = router({
       }
 
       // 2. Передаем инпут в сервис (без userId, доверяя мидлвару)
-      const result = await ctx.noteService.updateNote(input);
+      const result = await ctx.noteService.updateNote(input, ctx.userId);
 
       if (!result.note) {
         throw new TRPCError({

@@ -14,5 +14,16 @@ services:
       - synapse_kms_pgdata_prod:/var/lib/postgresql/data
     restart: unless-stopped
 
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: synapse_kms_redis_prod
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - synapse_kms_redisdata_prod:/data
+    restart: unless-stopped
+
 volumes:
   synapse_kms_pgdata_prod:
+  synapse_kms_redisdata_prod:

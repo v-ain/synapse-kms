@@ -28,6 +28,28 @@ export type NotePreview = Omit<
   tags: string[];
 };
 
+// Стейт блокировки, который рассчитывается на лету (из Redis) при отдаче клиенту
+export type NoteLockInfo = {
+  isLocked: boolean;
+  lockedBy: string | null;
+  lockedByName: string | null; // Потребуется JOIN с usersTable
+  expiresAt: number | null; // Epoch timestamp для фронтенд-таймера
+};
+
+// Точная структура полной заметки (для редактора)
+export type NoteDTO = Note & {
+  preview: string;
+  tags: string[];
+  lock: NoteLockInfo;
+};
+
+// Для списка заметок (превьюшки)
+export type NotePreviewDTO = Omit<Note, 'content' | 'isDeleted'> & {
+  preview: string;
+  tags: string[];
+  lock: NoteLockInfo;
+};
+
 export type NoteWithAuthor = Pick<
   Note,
   'id' | 'title' | 'created_at' | 'updated_at' | 'preview'

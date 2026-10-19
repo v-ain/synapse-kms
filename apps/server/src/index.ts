@@ -9,6 +9,8 @@ import fastifyCookie from '@fastify/cookie';
 import { AuthService } from './services/auth.service.js';
 import { TagService } from './services/tag.service.js';
 import { UserService } from './services/user.service.js';
+import { redis } from './infrastructure/redis.js';
+import { NoteLockService } from './services/note-lock.service.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -18,9 +20,11 @@ await fastify.register(fastifyCookie, {
 
 const userService = new UserService(db);
 const authService = new AuthService(db, userService);
-const noteService = new NoteService(db);
 const folderService = new FolderService(db, userService);
 const tagService = new TagService(db);
+
+const noteLockService = new NoteLockService(redis, db);
+const noteService = new NoteService(db, noteLockService);
 
 // Настройки куки: HttpOnly, защита от CSRF через SameSite=Strict, кука живет 7 дней [health]
 const COOKIE_OPTIONS = {
@@ -59,6 +63,8 @@ await fastify.register(fastifyTRPCPlugin, {
 
       // Возвращаем строго по нашему новому интерфейсу
       return createContext({
+        redis,
+        noteLockService,
         noteService,
         folderService,
         authService,

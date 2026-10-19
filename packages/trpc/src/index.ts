@@ -5,4 +5,6 @@ export type {
   IFolderService,
   ITagService,
   IUserService,
+  INoteLockService,
+  LockAcquireResult,
 } from './context.js';
