@@ -15,6 +15,7 @@ import {
   notesTagsTable,
   tagsTable,
   folderSharesTable,
+  SYSTEM_EVENTS,
 } from '@synapse-kms/shared';
 
 import type {
@@ -32,6 +33,7 @@ import type {
 import { INoteLockService, INoteService } from '@synapse-kms/trpc';
 import { DrizzleDB } from 'src/db.js';
 import { TRPCError } from '@trpc/server';
+import { globalEventEmitter } from 'src/infrastructure/events.js';
 
 export class NoteService implements INoteService {
   // Внедряем типизированный инстанс 'db' вместо сырого 'sql'
@@ -261,8 +263,8 @@ export class NoteService implements INoteService {
   async createNote(payload: CreateNotePayload, userId: string): Promise<Note> {
     const { title, content, folderId } = payload;
 
-    // 🚀 АТОМАРНАЯ ВСТАВКА: Больше никаких транзакций и блокировок папок!
-    const [note] = await this.db
+    // АТОМАРНАЯ ВСТАВКА: Больше никаких транзакций и блокировок папок!
+    const [newNote] = await this.db
       .insert(notesTable)
       .values({
         title: title.trim(),
@@ -272,9 +274,18 @@ export class NoteService implements INoteService {
       })
       .returning();
 
+    if (newNote) {
+      // Fire-and-Forget пуш в SSE-шину о том, что родилась новая заметка
+      globalEventEmitter.emit(SYSTEM_EVENTS.NOTE_MUTATED, {
+        type: 'CREATED',
+        noteId: newNote.id,
+        folderId: newNote.folderId,
+        userId: userId, // ID текущего авторизованного пользователя
+      });
+    }
     // Возвращаем объект, обогащая его виртуальными полями для фронтенда
     return {
-      ...note,
+      ...newNote,
       preview: (content || '').substring(0, 150),
       tags: [], // При создании заметки тегов на ней еще нет
     };

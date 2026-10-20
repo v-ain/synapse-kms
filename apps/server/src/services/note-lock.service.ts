@@ -1,7 +1,7 @@
 import type { Redis } from 'ioredis';
 import { INoteLockService, LockAcquireResult } from '@synapse-kms/trpc';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { LOCK_EVENTS, NoteLockInfo, usersTable } from '@synapse-kms/shared';
+import { NoteLockInfo, SYSTEM_EVENTS, usersTable } from '@synapse-kms/shared';
 import { eq } from 'drizzle-orm';
 import { globalEventEmitter } from 'src/infrastructure/events.js';
 
@@ -215,7 +215,7 @@ export class NoteLockService implements INoteLockService {
       const lockInfo = await this.getLockInfo(noteId);
 
       // Генерируем событие для шины
-      globalEventEmitter.emit(LOCK_EVENTS.LOCK_UPDATED, {
+      globalEventEmitter.emit(SYSTEM_EVENTS.LOCK_UPDATED, {
         noteId,
         lock: lockInfo,
       });

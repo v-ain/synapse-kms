@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import { protectedProcedure, router } from '../trpc.js';
-import { LOCK_EVENTS, type NoteLockInfo } from '@synapse-kms/shared';
+import { SYSTEM_EVENTS } from '@synapse-kms/shared';
 import { tracked } from '@trpc/server';
 
-// Описываем тип того, что летит в событии шины
-interface LockUpdatedEventPayload {
+// Описываем типы для полезной нагрузки мутаций заметок
+export interface NoteMutatedPayload {
+  type: 'CREATED' | 'DELETED' | 'UPDATED';
   noteId: string;
-  lock: NoteLockInfo;
+  folderId: string | null;
+  userId: string; // Кто совершил мутацию, чтобы создатель её игнорировал
 }
 
 export const notesLockRouter = router({
@@ -33,34 +35,38 @@ export const notesLockRouter = router({
     }),
 
   /**
-   * РЕАКТИВНЫЙ SSE-ПОТОК БЛОКИРОВОК
-   * Клиент подписывается на этот эндпоинт и получает дельту изменений в реальном времени.
+   *  ГЛОБАЛЬНЫЙ SSE-СТРИМ СИСТЕМНЫХ СОБЫТИЙ
+   * Сюда летят и блокировки, и создание/удаление заметок
    */
-  onLockStatusChanged: protectedProcedure.subscription(async function* (opts) {
-    const { ctx } = opts; // Достаем контекст процедуры
-    const eventQueue: LockUpdatedEventPayload[] = [];
+  onSystemEvent: protectedProcedure.subscription(async function* (opts) {
+    const { ctx } = opts;
+    const eventQueue: Array<{ eventType: string; payload: any }> = [];
 
-    const listener = (data: LockUpdatedEventPayload) => {
-      eventQueue.push(data);
-    };
+    // Универсальный слушатель, который упаковывает тип события и его данные
+    const lockListener = (data: any) =>
+      eventQueue.push({ eventType: 'LOCK_UPDATED', payload: data });
+    const noteListener = (data: any) =>
+      eventQueue.push({ eventType: 'NOTE_MUTATED', payload: data });
 
-    ctx.eventEmitter.on(LOCK_EVENTS.LOCK_UPDATED, listener);
+    // Подписываемся на оба события бэкенд-процесса
+    ctx.eventEmitter.on(SYSTEM_EVENTS.LOCK_UPDATED, lockListener);
+    ctx.eventEmitter.on(SYSTEM_EVENTS.NOTE_MUTATED, noteListener);
 
     try {
       while (true) {
         while (eventQueue.length > 0) {
           const event = eventQueue.shift();
           if (event) {
-            // Используем актуальный хелпер tracked(id, data)
-            yield tracked(event.noteId, event.lock);
+            // tracked связывает ID (тип события) с телом сообщения
+            yield tracked(event.eventType, event.payload);
           }
         }
-
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     } finally {
-      // Защита от утечек памяти при отключении клиента
-      ctx.eventEmitter.off(LOCK_EVENTS.LOCK_UPDATED, listener);
+      // КРИТИЧЕСКИ ВАЖНО: Чистим за собой оба слушателя при обрыве соединения
+      ctx.eventEmitter.off(SYSTEM_EVENTS.LOCK_UPDATED, lockListener);
+      ctx.eventEmitter.off(SYSTEM_EVENTS.NOTE_MUTATED, noteListener);
     }
   }),
 });
