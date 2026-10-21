@@ -19,15 +19,32 @@ import {
   Monitor,
 } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
-import { UserLayout } from '../users/UserLayout';
+import { UserAvatar } from '../users/UserAvatar';
+import { trpc } from '@/utils/trpc';
+import { useAuthStore } from '@/store/useAuthStore';
 
-interface HeaderProps {
-  onLogout: () => void;
-}
-
-export function Header({ onLogout }: HeaderProps) {
+export function Header() {
   const { activeNoteId, setActiveNote } = useUIStore();
   const { setTheme } = useTheme();
+  // Достаем метод очистки профиля из твоего Zustand-стора
+  const clearProfile = useAuthStore((state) => state.clearProfile);
+  const logoutMutation = trpc.auth.logout.useMutation({
+    onSuccess: () => {
+      console.log('[Auth] Кука сброшена сервером, очищаем локальный стор...');
+
+      // Сносим стейт в Zustand. App.tsx это увидит, размонтирует приватную зону,
+      // тем самым автоматически закроет SSE-стрим и перекинет на форму логина!
+      clearProfile();
+    },
+    onError: (error) => {
+      console.error(
+        '[Auth Error] Не удалось разлогиниться на сервере:',
+        error.message
+      );
+      // На случай форс-мажора всё равно сносим локальный профиль, чтобы юзер не залип
+      clearProfile();
+    },
+  });
 
   return (
     <header className="flex items-center justify-between px-4 md:px-6 h-14 border-b border-slate-200 bg-slate-50/50 backdrop-blur-sm dark:border-slate-800 dark:bg-slate-900/50 shrink-0 z-30 transition-colors">
@@ -69,7 +86,7 @@ export function Header({ onLogout }: HeaderProps) {
           <span>Облако синапсов активно</span>
         </div>
       </div>
-      <UserLayout />
+      <UserAvatar />
       {/* Правая часть: Назад, Переключатель темы и Выход */}
       <div className="flex items-center gap-2">
         {activeNoteId && (
@@ -123,7 +140,9 @@ export function Header({ onLogout }: HeaderProps) {
           variant="ghost"
           size="sm"
           className="h-8 text-xs gap-1.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-          onClick={onLogout}
+          // Дёргаем мутацию по клику
+          onClick={() => logoutMutation.mutate()}
+          disabled={logoutMutation.isPending}
         >
           <LogOut className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">Выйти</span>

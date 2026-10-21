@@ -11,18 +11,28 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Loader2, Lock, Mail, AlertCircle, Brain } from 'lucide-react';
+import { useAuthStore } from '@/store/useAuthStore';
 
-export const AuthForm = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
+export const AuthForm = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isRegister, setIsRegister] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // Достаем экшен установки профиля из стора
+  const setProfile = useAuthStore((state) => state.setProfile);
+
   // 🪄 tRPC мутации для логина и регистрации
   const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
       setErrorMessage('');
-      onAuthSuccess();
+      // БЕРЕМ USER ИЗ ОТВЕТА СЕРВЕРА: закидываем профиль в Zustand,
+      // флаг isAuthed автоматически станет true, и App.tsx мгновенно переключит экран!
+      setProfile({
+        id: data.user.id,
+        email: data.user.email,
+        role: data.user.role || 'user',
+      });
     },
     onError: (error) => {
       setErrorMessage(error.message);
@@ -30,9 +40,14 @@ export const AuthForm = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
   });
 
   const registerMutation = trpc.auth.register.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
       setErrorMessage('');
-      onAuthSuccess();
+
+      setProfile({
+        id: data.user.id,
+        email: data.user.email,
+        role: data.user.role || 'user',
+      });
     },
     onError: (error) => {
       setErrorMessage(error.message);
