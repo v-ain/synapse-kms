@@ -91,7 +91,19 @@ export class NoteService implements INoteService {
       // Магия: Либо ты владелец заметки, либо у тебя есть запись в folder_shares для этой папки
       conditions.push(
         or(
-          eq(notesTable.userId, userId), // Вариант А: Моя личная папка
+          // Вариант А: Я являюсь владельцем самой папки, в которой лежат заметки
+          exists(
+            this.db
+              .select()
+              .from(foldersTable)
+              .where(
+                and(
+                  eq(foldersTable.id, folderId),
+                  eq(foldersTable.userId, userId) // Я создал эту папку!
+                )
+              )
+          ),
+          // Вариант Б: Я гость, но папка расшарена мне через folderSharesTable
           exists(
             this.db
               .select()
@@ -99,7 +111,7 @@ export class NoteService implements INoteService {
               .where(
                 and(
                   eq(folderSharesTable.folderId, folderId),
-                  eq(folderSharesTable.userId, userId) // Бьем точно по составному индексу!
+                  eq(folderSharesTable.userId, userId)
                 )
               )
           )
