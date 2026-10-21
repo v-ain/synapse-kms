@@ -1,5 +1,5 @@
 import { useUIStore } from '@/store';
-import { useFolders, useNotes, useBulkMoveNotes } from '@/hooks';
+import { useFolders, useBulkMoveNotes } from '@/hooks';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -32,7 +32,6 @@ export function BulkActionsPanel({ currentNotesIds }: BulkActionsPanelProps) {
     toggleSelectNote,
   } = useUIStore();
 
-  const { data: notesData } = useNotes();
   const { data: folders } = useFolders();
   const { bulkMove, isPending } = useBulkMoveNotes();
 

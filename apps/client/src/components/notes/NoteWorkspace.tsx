@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Archive, Loader2, Plus, Tag as TagIcon } from 'lucide-react';
+import { NoteEditor_v2 } from './NoteEditor_v2';
 
 interface NoteWorkspaceProps {
   noteId: string;
@@ -121,7 +122,8 @@ export function NoteWorkspace({ noteId }: NoteWorkspaceProps) {
       {/* ОБЛАСТЬ РЕДАКТОРА */}
       <div className="flex-1 overflow-y-auto min-h-0 -mx-2 px-2">
         <div className="space-y-4 pb-6 pr-2">
-          <NoteEditor note={fullNote} key={fullNote.id} />
+          {/* <NoteEditor note={fullNote} key={fullNote.id} /> */}
+          <NoteEditor_v2 note={fullNote} key={fullNote.id} />
         </div>
       </div>
     </div>

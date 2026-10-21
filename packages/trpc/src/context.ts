@@ -1,3 +1,4 @@
+import type { EventEmitter } from 'events';
 import type {
   AttachTagPayload,
   BulkMovePayload,
@@ -5,8 +6,10 @@ import type {
   DeleteFolderPayload,
   Folder,
   FolderAccessResult,
+  FolderDTO,
   GetNotesQueryParams,
   Note,
+  NoteLockInfo,
   NotePreview,
   PaginatedResponse,
   Tag,
@@ -66,7 +69,7 @@ export interface IFolderService {
   /**
    * Получение списка всех активных (не удаленных) папок пользователя
    */
-  getFolders(userId: string): Promise<Folder[]>;
+  getFolders(userId: string): Promise<FolderDTO[]>;
 
   /**
    * Создание новой папки
@@ -124,12 +127,44 @@ export interface IAdminService {
   getNotes(query: any, userId: string): Promise<any>;
 }
 
+export interface LockAcquireResult {
+  success: boolean;
+  lockedBy: string;
+  expiresIn: number; // сколько секунд осталось
+}
+
+export interface INoteLockService {
+  /**
+   * Пытается установить атомарный ключ в Redis (NX) на 30 секунд.
+   * Если ключ уже занят текущим userId — продлевает его.
+   */
+  acquire(noteId: string, userId: string): Promise<LockAcquireResult>;
+
+  /**
+   * Обновляет TTL блокировки (проверяя, что замок всё еще принадлежит этому юзеру)
+   */
+  renew(noteId: string, userId: string): Promise<boolean>;
+
+  /**
+   * Удаляет ключ блокировки из Redis (атомарно через Lua-скрипт, чтобы не удалить чужой замок)
+   */
+  release(noteId: string, userId: string): Promise<void>;
+
+  isLockedByOthers(noteId: string, userId: string): Promise<boolean>;
+
+  getLockInfo(noteId: string): Promise<NoteLockInfo>;
+
+  getLocksForNotes(noteIds: string[]): Promise<Record<string, NoteLockInfo>>;
+}
+
 export interface ContextOptions {
   noteService: INoteService;
   folderService: IFolderService;
   authService: IAuthService;
   tagService: ITagService;
   userService: IUserService;
+  noteLockService: INoteLockService;
+  eventEmitter: EventEmitter;
   userId: string | null;
   userRole: string | null;
   setAuthCookie?: (token: string) => void;
@@ -142,6 +177,8 @@ export function createContext(opts: ContextOptions) {
     authService: opts.authService,
     tagService: opts.tagService,
     userService: opts.userService,
+    noteLockService: opts.noteLockService,
+    eventEmitter: opts.eventEmitter,
     userId: opts.userId,
     userRole: opts.userRole,
     setAuthCookie: opts.setAuthCookie,

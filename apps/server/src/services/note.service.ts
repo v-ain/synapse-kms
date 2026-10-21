@@ -15,6 +15,7 @@ import {
   notesTagsTable,
   tagsTable,
   folderSharesTable,
+  SYSTEM_EVENTS,
 } from '@synapse-kms/shared';
 
 import type {
@@ -26,14 +27,20 @@ import type {
   NotePreview,
   UpdateNotePayload,
   NoteWithTags,
+  NoteDTO,
 } from '@synapse-kms/shared';
 
-import { INoteService } from '@synapse-kms/trpc';
+import { INoteLockService, INoteService } from '@synapse-kms/trpc';
 import { DrizzleDB } from 'src/db.js';
+import { TRPCError } from '@trpc/server';
+import { globalEventEmitter } from 'src/infrastructure/events.js';
 
 export class NoteService implements INoteService {
   // Внедряем типизированный инстанс 'db' вместо сырого 'sql'
-  constructor(private db: DrizzleDB) {}
+  constructor(
+    private db: DrizzleDB,
+    private readonly noteLockService: INoteLockService
+  ) {}
 
   // Получить только метаданные для проверки безопасности
   async getNoteMeta(
@@ -84,7 +91,19 @@ export class NoteService implements INoteService {
       // Магия: Либо ты владелец заметки, либо у тебя есть запись в folder_shares для этой папки
       conditions.push(
         or(
-          eq(notesTable.userId, userId), // Вариант А: Моя личная папка
+          // Вариант А: Я являюсь владельцем самой папки, в которой лежат заметки
+          exists(
+            this.db
+              .select()
+              .from(foldersTable)
+              .where(
+                and(
+                  eq(foldersTable.id, folderId),
+                  eq(foldersTable.userId, userId) // Я создал эту папку!
+                )
+              )
+          ),
+          // Вариант Б: Я гость, но папка расшарена мне через folderSharesTable
           exists(
             this.db
               .select()
@@ -92,7 +111,7 @@ export class NoteService implements INoteService {
               .where(
                 and(
                   eq(folderSharesTable.folderId, folderId),
-                  eq(folderSharesTable.userId, userId) // Бьем точно по составному индексу!
+                  eq(folderSharesTable.userId, userId)
                 )
               )
           )
@@ -182,20 +201,36 @@ export class NoteService implements INoteService {
     const hasMore = rawNotes.length > parsedLimit;
     const items = hasMore ? rawNotes.slice(0, parsedLimit) : rawNotes;
 
+    // НАЧАЛО ОБОГАЩЕНИЯ: Вытягиваем замки пачкой за 0.2ms
+    const noteIds = items.map((note) => note.id);
+    const locksMap = await this.noteLockService.getLocksForNotes(noteIds);
+
+    // Маппим элементы, внедряя лок-информацию в каждую NotePreview карточку
+    const enrichedItems = items.map((note) => ({
+      ...note,
+      lock: locksMap[note.id] || {
+        isLocked: false,
+        lockedBy: null,
+        lockedByName: null,
+        expiresAt: null,
+      },
+    }));
+    // КОНЕЦ ОБОГАЩЕНИЯ
+
     let nextCursor: string | null = null;
-    if (items.length > 0) {
-      nextCursor = items[items.length - 1].clientUpdatedAt;
+    if (enrichedItems.length > 0) {
+      nextCursor = enrichedItems[enrichedItems.length - 1].clientUpdatedAt;
     }
 
     return {
-      items,
+      items: enrichedItems, // Возвращаем обогащенный массив
       nextCursor: hasMore ? nextCursor : null,
       hasMore: hasMore,
     };
   }
 
   // 2. ПОЛУЧИТЬ КОНТЕНТ ЗАМЕТКИ ПО ID (Права проверены на уровне API слоя)
-  async getNoteById(id: string): Promise<NoteWithTags | null> {
+  async getNoteById(id: string): Promise<NoteDTO | null> {
     const noteData = await this.db.query.notesTable.findFirst({
       where: (notes, { and, eq }) =>
         and(
@@ -213,6 +248,9 @@ export class NoteService implements INoteService {
 
     if (!noteData) return null;
 
+    // Заглядываем в Redis за статусом аренды замка
+    const lockInfo = await this.noteLockService.getLockInfo(id);
+
     const tags = noteData.notes_tags.map((nt) => nt.tag.name);
 
     return {
@@ -228,6 +266,8 @@ export class NoteService implements INoteService {
       updatedAt: noteData.updatedAt,
       tags: tags,
       preview: (noteData.content || '').substring(0, 150),
+      // Вживляем статус блокировки в DTO ответа!
+      lock: lockInfo,
     };
   }
 
@@ -235,8 +275,8 @@ export class NoteService implements INoteService {
   async createNote(payload: CreateNotePayload, userId: string): Promise<Note> {
     const { title, content, folderId } = payload;
 
-    // 🚀 АТОМАРНАЯ ВСТАВКА: Больше никаких транзакций и блокировок папок!
-    const [note] = await this.db
+    // АТОМАРНАЯ ВСТАВКА: Больше никаких транзакций и блокировок папок!
+    const [newNote] = await this.db
       .insert(notesTable)
       .values({
         title: title.trim(),
@@ -246,9 +286,18 @@ export class NoteService implements INoteService {
       })
       .returning();
 
+    if (newNote) {
+      // Fire-and-Forget пуш в SSE-шину о том, что родилась новая заметка
+      globalEventEmitter.emit(SYSTEM_EVENTS.NOTE_MUTATED, {
+        type: 'CREATED',
+        noteId: newNote.id,
+        folderId: newNote.folderId,
+        userId: userId, // ID текущего авторизованного пользователя
+      });
+    }
     // Возвращаем объект, обогащая его виртуальными полями для фронтенда
     return {
-      ...note,
+      ...newNote,
       preview: (content || '').substring(0, 150),
       tags: [], // При создании заметки тегов на ней еще нет
     };
@@ -324,12 +373,30 @@ export class NoteService implements INoteService {
    * Атомарное обновление заметки на основе семантики Last-Write-Wins (LWW).
    * Права доступа гарантированы вызывающим слоем API.
    */
-  async updateNote(payload: UpdateNotePayload): Promise<{
+  async updateNote(
+    payload: UpdateNotePayload,
+    userId: string
+  ): Promise<{
     success: boolean;
     isRejected: boolean;
     note: NoteWithTags | null;
   }> {
     const { id, clientUpdatedAt, title, content } = payload;
+
+    const noteId = id;
+    // Делегируем проверку специализированному сервису блокировок
+    const isLocked = await this.noteLockService.isLockedByOthers(
+      noteId,
+      userId
+    );
+
+    if (isLocked) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message:
+          'Заметка заблокирована другим пользователем. Изменения отклонены.',
+      });
+    }
 
     const updateFields: Record<string, any> = {
       clientUpdatedAt,
