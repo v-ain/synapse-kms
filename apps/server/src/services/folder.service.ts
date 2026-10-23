@@ -112,14 +112,14 @@ export class FolderService implements IFolderService {
   async shareFolder(params: {
     folderId: string;
     ownerId: string;
-    targetEmail: string; // 🚀 Принимаем Email вместо сырого ID
+    username: string;
     accessLevel: 'read' | 'write';
   }): Promise<{
     success: boolean;
     sharedWith: string;
     accessLevel: 'read' | 'write';
   }> {
-    const { folderId, ownerId, targetEmail, accessLevel } = params;
+    const { folderId, ownerId, username, accessLevel } = params;
 
     // 1. Проверяем, что запрашивающий — реально владелец папки (Реляционный стиль)
     const ownedFolder = await this.db.query.foldersTable.findFirst({
@@ -138,11 +138,15 @@ export class FolderService implements IFolderService {
     }
 
     // 2. Идем в UserService за ID целевого пользователя
-    const targetUser = await this.userService.findByEmail(targetEmail);
+    // const targetUser = await this.userService.findByEmail(targetEmail);
+
+    const targetUser = await this.db.query.usersTable.findFirst({
+      where: (users, { eq }) => eq(users.username, username),
+    });
 
     if (!targetUser) {
       throw new Error(
-        '404: Пользователь с таким Email не зарегистрирован в системе'
+        '404: Пользователь с таким никнеймом не зарегистрирован в системе'
       );
     }
 
@@ -167,7 +171,7 @@ export class FolderService implements IFolderService {
 
     return {
       success: true,
-      sharedWith: targetUser.email,
+      sharedWith: targetUser.username,
       accessLevel: shareRecord.accessLevel,
     };
   }

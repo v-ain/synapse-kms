@@ -52,7 +52,7 @@ export const foldersRouter = router({
     .input(
       z.object({
         // Поле id валидируется на входе, фронтенд обязан его передать
-        targetEmail: z.string().email(),
+        username: z.string(),
         accessLevel: z.enum(['read', 'write']).default('read'),
       })
     )
@@ -71,7 +71,7 @@ export const foldersRouter = router({
         const result = await ctx.folderService.shareFolder({
           folderId: ctx.targetFolderId, // 🛡️ Никаких input.id, только защищенный контекст мидлвара!
           ownerId: ctx.userId,
-          targetEmail: input.targetEmail,
+          username: input.username,
           accessLevel: input.accessLevel,
         });
 

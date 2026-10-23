@@ -42,11 +42,11 @@ export class UserService implements IUserService {
    */
   async getShareableUsers(
     currentUserId: string
-  ): Promise<{ id: string; email: string }[]> {
+  ): Promise<{ id: string; username: string }[]> {
     const list = await this.db
       .select({
         id: usersTable.id,
-        email: usersTable.email,
+        username: usersTable.username,
       })
       .from(usersTable)
       .where(

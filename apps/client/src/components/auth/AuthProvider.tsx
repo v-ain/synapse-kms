@@ -39,6 +39,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Передаем профиль строго по твоему контракту Zustand стора
       setProfile({
         id: me.id,
+        username: me.username,
         email: me.email,
         role: me.role || 'user',
       });

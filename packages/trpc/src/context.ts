@@ -96,7 +96,7 @@ export interface IFolderService {
   shareFolder(payload: {
     folderId: string;
     ownerId: string;
-    targetEmail: string; // Меняем targetUserId на targetEmail для безопасности
+    username: string; // Меняем targetEmail на username для скрытия
     accessLevel: 'read' | 'write';
   }): Promise<{
     success: boolean;
@@ -121,6 +121,9 @@ export interface IUserService {
   findById(id: string): Promise<UserEntity | null>;
   findByEmail(email: string): Promise<UserEntity | null>;
   getUserProfile(id: string): Promise<Omit<UserEntity, 'passwordHash'> | null>;
+  getShareableUsers(
+    currentUserId: string
+  ): Promise<{ id: string; username: string }[]>;
 }
 
 export interface IAdminService {
