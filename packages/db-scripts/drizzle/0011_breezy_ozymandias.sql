@@ -1,0 +1,1 @@
+ALTER TABLE "users" ALTER COLUMN "max_notes" SET DEFAULT 1000;
