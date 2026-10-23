@@ -225,3 +225,41 @@ export const authCredentialsSchema = z.object({
 export type AuthCredentials = z.infer<typeof authCredentialsSchema>;
 
 export type UserEntity = InferSelectModel<typeof usersTable>;
+
+// 1. БАЗОВАЯ СХЕМА ДЛЯ ВХОДА (Login)
+// Используем её в auth.login роутере
+export const loginSchema = z.object({
+  email: z.string().email('Некорректный формат email'),
+  password: z.string().min(6, 'Пароль должен быть не менее 6 символов'),
+});
+
+// 2. РАСШИРЕННАЯ СХЕМА ДЛЯ РЕГИСТРАЦИИ (Register)
+// Используем метод .extend(), чтобы не копипастить email и password!
+export const registerSchema = loginSchema.extend({
+  username: z
+    .string()
+    .min(3, 'Никнейм должен быть не менее 3 символов')
+    .max(20, 'Никнейм не должен превышать 20 символов')
+    .regex(
+      /^[a-zA-Z0-9_]+$/,
+      'Никнейм может содержать только латинские буквы, цифры и подчеркивание'
+    ),
+  displayName: z.string().optional(),
+});
+
+// Вытаскиваем TypeScript типы напрямую из Zod-схем, чтобы бэкенд и фронтенд их видели
+export type LoginInput = z.infer<typeof loginSchema>;
+export type RegisterInput = z.infer<typeof registerSchema>;
+
+// Safe DTO для фронтенда (Никаких хэшей паролей!)
+export interface UserDTO {
+  id: string;
+  username: string;
+  displayName: string | null;
+  role: string;
+  quota: {
+    tier: 'free' | 'pro';
+    usedNotes: number;
+    maxNotes: number;
+  };
+}

@@ -20,6 +20,17 @@ export const usersTable = pgTable('users', {
   email: text('email').unique().notNull(),
   passwordHash: text('password_hash').notNull(),
   role: text('role').default('user').notNull(),
+
+  // ДОБАВЛЯЕМ ПОЛЯ ДЛЯ ПЕРВОЙ ИТЕРАЦИИ DDD
+  username: text('username').unique(), // Никнейм (пока опциональный для старых юзеров)
+  displayName: text('display_name'),
+
+  tier: text('tier').default('free').notNull(), // free, pro
+  maxNotes: integer('max_notes').default(1000).notNull(),
+  usedNotes: integer('used_notes').default(0).notNull(), // Счетчик
+
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 // СХЕМА ТАБЛИЦЫ FOLDERS

@@ -1,61 +1,38 @@
 import { router, publicProcedure } from '../trpc.js';
 import { TRPCError } from '@trpc/server';
-import { authCredentialsSchema } from '@synapse-kms/shared';
-
-// // Настройки куки: HttpOnly, защита от CSRF через SameSite=Strict, кука живет 7 дней [health]
-// const COOKIE_OPTIONS = {
-//   path: '/',
-//   httpOnly: true,
-//   secure: process.env.NODE_ENV === 'production',
-//   sameSite: 'strict' as const,
-//   maxAge: 60 * 60 * 24 * 7, // 7 дней в секундах
-// };
+import { loginSchema, registerSchema } from '@synapse-kms/shared';
 
 export const authRouter = router({
-  // 📝 1. РЕГИСТРАЦИЯ ПОЛЬЗОВАТЕЛЯ (Исправленный вариант)
+  // 1. РЕГИСТРАЦИЯ (С расширенным DDD-инпутом)
   register: publicProcedure
-    .input(authCredentialsSchema)
+    .input(registerSchema) // Защищает эндпоинт правилами для никнейма
     .mutation(async ({ input, ctx }) => {
-      const { email, password } = input;
+      // Передаем весь input целиком в AuthService (он теперь ждет email, password, username, displayName)
+      const newUser = await ctx.authService.registerUser(input);
 
-      try {
-        const newUser = await ctx.authService.registerUser(email, password);
+      // Сразу после успешной регистрации генерируем JWT токен
+      const token = ctx.authService.generateToken(newUser.id, newUser.role);
 
-        // Сразу после регистрации генерируем токен и логиним юзера [health]
-        const token = ctx.authService.generateToken(newUser.id, newUser.role);
-        if (ctx.setAuthCookie) {
-          ctx.setAuthCookie(token);
-        }
-
-        return {
-          success: true,
-          user: { id: newUser.id, email: newUser.email },
-        };
-      } catch (err: any) {
-        // Если база выкинула ошибку уникальности email (unique constraint)
-        if (err.code === '23505') {
-          throw new TRPCError({
-            code: 'CONFLICT',
-            message: 'Пользователь с таким email уже зарегистрирован',
-          });
-        }
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Ошибка при регистрации пользователя',
-        });
+      if (ctx.setAuthCookie) {
+        ctx.setAuthCookie(token);
       }
+
+      // Возвращаем фронтенду безопасный DTO (без приватных полей и хэшей паролей)
+      return {
+        success: true,
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          role: newUser.role,
+        },
+      };
     }),
 
-  // 🔑 2. ВХОД (ЛОГИН)
+  // 2. ВХОД (Логин использует чистый loginSchema без никнейма)
   login: publicProcedure
-    .input(authCredentialsSchema)
+    .input(loginSchema) // При входе просим строго email и password
     .mutation(async ({ input, ctx }) => {
       const { email, password } = input;
-
-      // Здесь нам нужно найти пользователя по email.
-      // Бро, если в контексте нет прямой ссылки на `db` (так как мы решили ходить через сервисы),
-      // то поиск юзера по email и инсерт при регистрации лучше всего дописать методами внутрь вашего `AuthService`!
-      // Давай перенаправим вызов в AuthService, чтобы не нарушать архитектуру.
 
       const user = await ctx.authService.validateUser(email, password);
 
@@ -73,10 +50,14 @@ export const authRouter = router({
         ctx.setAuthCookie(token);
       }
 
-      return { success: true, user: { id: user.id, email: user.email } };
+      // Так как email на клиенте больше не светится, для сессии отдаем id и роль
+      return {
+        success: true,
+        user: { id: user.id, username: user.username, role: user.role },
+      };
     }),
 
-  // 🚪 3. ВЫХОД (ЛОГАУТ)
+  // 🚪 3. ВЫХОД
   logout: publicProcedure.mutation(({ ctx }) => {
     if (ctx.setAuthCookie) {
       ctx.setAuthCookie('');

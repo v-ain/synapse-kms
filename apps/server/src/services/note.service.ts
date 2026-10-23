@@ -1,14 +1,4 @@
-import {
-  eq,
-  and,
-  sql,
-  desc,
-  lt,
-  ilike,
-  or,
-  exists,
-  inArray,
-} from 'drizzle-orm';
+import { eq, and, sql, desc, lt, ilike, or, exists } from 'drizzle-orm';
 import {
   notesTable,
   foldersTable,
@@ -39,7 +29,8 @@ export class NoteService implements INoteService {
   // Внедряем типизированный инстанс 'db' вместо сырого 'sql'
   constructor(
     private db: DrizzleDB,
-    private readonly noteLockService: INoteLockService
+    private readonly noteLockService: INoteLockService,
+    private userRepository: any
   ) {}
 
   // Получить только метаданные для проверки безопасности
@@ -271,31 +262,69 @@ export class NoteService implements INoteService {
     };
   }
 
-  // СОЗДАТЬ ЗАМЕТКУ
+  // СОЗДАТЬ ЗАМЕТКУ (С КОНТРОЛЕМ DDD ЛИМИТОВ И ЗАЩИТОЙ FOR UPDATE)
   async createNote(payload: CreateNotePayload, userId: string): Promise<Note> {
     const { title, content, folderId } = payload;
 
-    // АТОМАРНАЯ ВСТАВКА: Больше никаких транзакций и блокировок папок!
-    const [newNote] = await this.db
-      .insert(notesTable)
-      .values({
-        title: title.trim(),
-        content: content || '',
-        folderId: folderId || null, // null означает Inbox
-        userId: userId,
-      })
-      .returning();
+    // 1. Открываем транзакцию, чтобы блокировка FOR UPDATE имела юридическую силу в Postgres
+    const newNote = await this.db.transaction(async (tx) => {
+      // 2. Блокируем строку квоты юзера. Параллельные клики выстроятся в очередь прямо здесь!
+      const userAggregate = await this.userRepository.findByIdForUpdate(
+        userId,
+        tx
+      );
 
-    if (newNote) {
-      // Fire-and-Forget пуш в SSE-шину о том, что родилась новая заметка
-      globalEventEmitter.emit(SYSTEM_EVENTS.NOTE_MUTATED, {
-        type: 'CREATED',
-        noteId: newNote.id,
-        folderId: newNote.folderId,
-        userId: userId, // ID текущего авторизованного пользователя
-      });
-    }
-    // Возвращаем объект, обогащая его виртуальными полями для фронтенда
+      if (!userAggregate) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Бизнес-логика прервана: Пользователь не найден в системе.',
+        });
+      }
+
+      // 3. Проверяем лимиты в памяти Агрегата. Если usedNotes >= maxNotes — вылетит ошибка
+      try {
+        userAggregate.executeNoteCreation();
+      } catch (domainError: any) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: domainError.message, // Передаем красивый текст ошибки на фронтенд
+        });
+      }
+
+      // 4. АТОМАРНАЯ ВСТАВКА (теперь выполняется внутри безопасного контекста `tx`)
+      const [insertedNote] = await tx
+        .insert(notesTable)
+        .values({
+          title: title.trim(),
+          content: content || '',
+          folderId: folderId || null, // null означает Inbox
+          userId: userId,
+        })
+        .returning();
+
+      if (!insertedNote) {
+        tx.rollback(); // Откатываем транзакцию, если инсерт почему-то вернул пустую строку
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Не удалось записать заметку в БД.',
+        });
+      }
+
+      // 5. Сохраняем инкрементированное состояние квоты в базу данных
+      await this.userRepository.save(userAggregate, tx);
+
+      return insertedNote;
+    });
+
+    // 6. Снаружи транзакции делаем Fire-and-Forget пуш в SSE-шину событий
+    globalEventEmitter.emit(SYSTEM_EVENTS.NOTE_MUTATED, {
+      type: 'CREATED',
+      noteId: newNote.id,
+      folderId: newNote.folderId,
+      userId: userId, // Кто создал, чтобы сработал фронтенд-гард "свой-чужой"
+    });
+
+    // 7. СТРУКТУРИРОВАННЫЙ ОТВЕТ: Возвращаем объект, обогащая его виртуальными полями
     return {
       ...newNote,
       preview: (content || '').substring(0, 150),

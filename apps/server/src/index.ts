@@ -12,6 +12,7 @@ import { UserService } from './services/user.service.js';
 import { redis } from './infrastructure/redis.js';
 import { NoteLockService } from './services/note-lock.service.js';
 import { globalEventEmitter } from './infrastructure/events.js';
+import { UserRepository } from './domain/user/repository/UserRepository.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -24,14 +25,15 @@ const authService = new AuthService(db, userService);
 const folderService = new FolderService(db, userService);
 const tagService = new TagService(db);
 
+const userRepository = new UserRepository(db);
 const noteLockService = new NoteLockService(redis, db);
-const noteService = new NoteService(db, noteLockService);
+const noteService = new NoteService(db, noteLockService, userRepository);
 
 // Настройки куки: HttpOnly, защита от CSRF через SameSite=Strict, кука живет 7 дней [health]
 const COOKIE_OPTIONS = {
   path: '/',
   httpOnly: true,
-  secure: false,
+  secure: process.env.NODE_ENV === 'production',
   sameSite: 'lax' as const,
   maxAge: 60 * 60 * 24 * 7, // 7 дней в секундах
 };

@@ -10,27 +10,28 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Loader2, Lock, Mail, AlertCircle, Brain } from 'lucide-react';
+import { Loader2, Lock, Mail, AlertCircle, Brain, User } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export const AuthForm = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  // Новые стейты для регистрации под DDD-домен
+  const [username, setUsername] = useState('');
+  const [displayName, setDisplayName] = useState('');
+
   const [isRegister, setIsRegister] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Достаем экшен установки профиля из стора
   const setProfile = useAuthStore((state) => state.setProfile);
 
-  // 🪄 tRPC мутации для логина и регистрации
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: (data) => {
       setErrorMessage('');
-      // БЕРЕМ USER ИЗ ОТВЕТА СЕРВЕРА: закидываем профиль в Zustand,
-      // флаг isAuthed автоматически станет true, и App.tsx мгновенно переключит экран!
+      // Логин: Прокидываем данные. Так как бэкенд отдает id, role и username
       setProfile({
         id: data.user.id,
-        email: data.user.email,
+        username: data.user.username,
         role: data.user.role || 'user',
       });
     },
@@ -42,10 +43,10 @@ export const AuthForm = () => {
   const registerMutation = trpc.auth.register.useMutation({
     onSuccess: (data) => {
       setErrorMessage('');
-
+      // Регистрация: Сервер вернул нам сгенерированный никнейм
       setProfile({
         id: data.user.id,
-        email: data.user.email,
+        username: data.user.username,
         role: data.user.role || 'user',
       });
     },
@@ -56,22 +57,25 @@ export const AuthForm = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = { email, password };
 
     if (isRegister) {
-      registerMutation.mutate(payload);
+      // При регистрации отправляем полный DDD-пакет данных
+      registerMutation.mutate({
+        email,
+        password,
+        username: username.trim(),
+        displayName: displayName.trim() || undefined,
+      });
     } else {
-      loginMutation.mutate(payload);
+      loginMutation.mutate({ email, password });
     }
   };
 
   const isLoading = loginMutation.isPending || registerMutation.isPending;
 
   return (
-    // Обертка центрирует форму по вертикали и горизонтали на экранах любых размеров
     <div className="flex min-h-screen w-full items-center justify-center p-4 bg-slate-50/50 dark:bg-slate-950">
       <Card className="w-full max-w-sm shadow-xl border-slate-200/60 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md">
-        {/* Шапка формы с красивой иконкой синапса */}
         <CardHeader className="space-y-1 text-center pt-8">
           <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-slate-900 text-white dark:bg-slate-50 dark:text-slate-900">
             <Brain className="h-5 w-5" />
@@ -88,12 +92,56 @@ export const AuthForm = () => {
 
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            {/* Вывод ошибки через стильный деструктивный блок */}
             {errorMessage && (
               <div className="flex items-center gap-2 rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-xs text-destructive font-medium animate-in fade-in slide-in-from-top-1 duration-150">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 <p>{errorMessage}</p>
               </div>
+            )}
+
+            {/* НОВЫЕ ПОЛЯ: Появляются только при регистрации */}
+            {isRegister && (
+              <>
+                {/* Никнейм */}
+                <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-0.5">
+                    Никнейм (для поиска и шаринга)
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
+                    <Input
+                      type="text"
+                      value={username}
+                      // Вырезаем пробелы на лету, подготавливая строку под Zod-регулярку
+                      onChange={(e) =>
+                        setUsername(e.target.value.replace(/\s/g, ''))
+                      }
+                      placeholder="alex_dev"
+                      className="pl-9 h-10 bg-slate-50/30 dark:bg-slate-900/30"
+                      required
+                      disabled={isLoading}
+                    />
+                  </div>
+                </div>
+
+                {/* Отображаемое имя */}
+                <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider px-0.5">
+                    Имя пользователя (опционально)
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none" />
+                    <Input
+                      type="text"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Алексей Иванов"
+                      className="pl-9 h-10 bg-slate-50/30 dark:bg-slate-900/30"
+                      disabled={isLoading}
+                    />
+                  </div>
+                </div>
+              </>
             )}
 
             {/* Поле Email */}
@@ -136,7 +184,6 @@ export const AuthForm = () => {
           </CardContent>
 
           <CardFooter className="flex flex-col gap-3 pb-8">
-            {/* Кнопка отправки формы в строгом стиле Nova */}
             <Button
               type="submit"
               disabled={isLoading}
@@ -154,7 +201,6 @@ export const AuthForm = () => {
               )}
             </Button>
 
-            {/* Переключатель режимов */}
             <button
               type="button"
               disabled={isLoading}
