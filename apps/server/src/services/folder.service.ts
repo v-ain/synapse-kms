@@ -138,11 +138,7 @@ export class FolderService implements IFolderService {
     }
 
     // 2. Идем в UserService за ID целевого пользователя
-    // const targetUser = await this.userService.findByEmail(targetEmail);
-
-    const targetUser = await this.db.query.usersTable.findFirst({
-      where: (users, { eq }) => eq(users.username, username),
-    });
+    const targetUser = await this.userService.findByUsername(username);
 
     if (!targetUser) {
       throw new Error(

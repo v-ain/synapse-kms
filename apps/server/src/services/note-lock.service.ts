@@ -1,7 +1,12 @@
 import type { Redis } from 'ioredis';
 import { INoteLockService, LockAcquireResult } from '@synapse-kms/trpc';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { NoteLockInfo, SYSTEM_EVENTS, usersTable } from '@synapse-kms/shared';
+import {
+  NoteLockInfo,
+  SYSTEM_EVENTS,
+  userProfilesTable,
+  usersTable,
+} from '@synapse-kms/shared';
 import { eq } from 'drizzle-orm';
 import { globalEventEmitter } from 'src/infrastructure/events.js';
 
@@ -108,7 +113,7 @@ export class NoteLockService implements INoteLockService {
    */
   async getLockInfo(noteId: string): Promise<NoteLockInfo> {
     const key = this.getLockKey(noteId);
-    const lockedBy = await this.redis.get(key);
+    const lockedBy = await this.redis.get(key); // Здесь лежит userId того, кто залочил
 
     if (!lockedBy) {
       return {
@@ -120,19 +125,29 @@ export class NoteLockService implements INoteLockService {
     }
 
     const ttl = await this.redis.ttl(key);
-    const expiresAt = Date.now() + ttl * 1000;
+    // Защита: если ключ в Redis вот-вот протухнет, не уходим в отрицательный таймстамп
+    const expiresAt = Date.now() + (ttl > 0 ? ttl * 1000 : 0);
 
-    // Вытягиваем имя/email автора лока для UI-маркера
-    const [user] = await this.db
-      .select({ email: usersTable.email })
-      .from(usersTable)
-      .where(eq(usersTable.id, lockedBy))
+    // ⚡️ Напрямую лезем в таблицу профилей за публичным именем
+    const [profile] = await this.db
+      .select({
+        username: userProfilesTable.username,
+        displayName: userProfilesTable.displayName,
+      })
+      .from(userProfilesTable)
+      .where(eq(userProfilesTable.userId, lockedBy))
       .limit(1);
+
+    // Собираем красивое отображение для UI:
+    // Если есть Display Name — берем его, иначе — @username, иначе — фолбек
+    const lockedByName = profile
+      ? profile.displayName || profile.username
+      : 'Коллега';
 
     return {
       isLocked: true,
       lockedBy,
-      lockedByName: user?.email || 'Коллега',
+      lockedByName,
       expiresAt,
     };
   }

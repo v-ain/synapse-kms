@@ -119,8 +119,15 @@ export interface ITagService {
 
 export interface IUserService {
   findById(id: string): Promise<UserEntity | null>;
-  findByEmail(email: string): Promise<UserEntity | null>;
-  getUserProfile(id: string): Promise<Omit<UserEntity, 'passwordHash'> | null>;
+  findByUsername(
+    email: string
+  ): Promise<{ id: string; username: string } | null>;
+  getUserProfile(id: string): Promise<{
+    id: string;
+    username: string;
+    displayName: string | null;
+    role: string;
+  } | null>;
   getShareableUsers(
     currentUserId: string
   ): Promise<{ id: string; username: string }[]>;

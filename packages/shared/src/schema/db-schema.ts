@@ -13,25 +13,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-
-// СХЕМА ТАБЛИЦЫ USERS
-export const usersTable = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom().notNull(),
-  email: text('email').unique().notNull(),
-  passwordHash: text('password_hash').notNull(),
-  role: text('role').default('user').notNull(),
-
-  // ДОБАВЛЯЕМ ПОЛЯ ДЛЯ ПЕРВОЙ ИТЕРАЦИИ DDD
-  username: text('username').unique(), // Никнейм (пока опциональный для старых юзеров)
-  displayName: text('display_name'),
-
-  tier: text('tier').default('free').notNull(), // free, pro
-  maxNotes: integer('max_notes').default(1000).notNull(),
-  usedNotes: integer('used_notes').default(0).notNull(), // Счетчик
-
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+import { usersTable } from './user/user-schema.js';
 
 // СХЕМА ТАБЛИЦЫ FOLDERS
 export const foldersTable = pgTable('folders', {
@@ -154,12 +136,9 @@ export const folderSharesTable = pgTable(
   }
 );
 
-// 1. СВЯЗИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ (Users)
-export const usersRelations = relations(usersTable, ({ many }) => ({
-  folders: many(foldersTable), // Папки, которыми владеет пользователь
-  notes: many(notesTable), // Личные заметки пользователя
-  shares: many(folderSharesTable), // Доступы к чужим папкам, которые выданы этому пользователю
-}));
+// ==========================================
+// ДОМЕННЫЕ DRIZZLE RELATIONS (Без таблицы Users)
+// ==========================================
 
 // 2. СВЯЗИ ДЛЯ ПАПОК (Folders)
 export const foldersRelations = relations(foldersTable, ({ one, many }) => ({

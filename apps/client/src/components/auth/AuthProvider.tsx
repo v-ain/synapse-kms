@@ -40,7 +40,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setProfile({
         id: me.id,
         username: me.username,
-        email: me.email,
         role: me.role || 'user',
       });
     } else if (error) {

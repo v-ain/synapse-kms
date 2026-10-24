@@ -19,6 +19,9 @@ export class UserQuota {
   get usedNotes() {
     return this.props.usedNotes;
   }
+  get maxStorageMb() {
+    return this.props.maxStorageMb;
+  }
 
   /**
    * ⚡ БИЗНЕС-ПРАВИЛО: Проверяем, есть ли свободное место под заметку
