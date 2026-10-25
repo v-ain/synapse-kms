@@ -6,6 +6,7 @@ import {
   tagsTable,
   folderSharesTable,
   SYSTEM_EVENTS,
+  userProfilesTable,
 } from '@synapse-kms/shared';
 
 import type {
@@ -14,10 +15,10 @@ import type {
   BulkMovePayload,
   PaginatedResponse,
   GetNotesQueryParams,
-  NotePreview,
   UpdateNotePayload,
   NoteWithTags,
   NoteDTO,
+  NotePreviewDTO,
 } from '@synapse-kms/shared';
 
 import { INoteLockService, INoteService } from '@synapse-kms/trpc';
@@ -52,7 +53,7 @@ export class NoteService implements INoteService {
   async getNotes(
     query: GetNotesQueryParams,
     userId: string
-  ): Promise<PaginatedResponse<NotePreview>> {
+  ): Promise<PaginatedResponse<NotePreviewDTO>> {
     const { folderId, filter = 'all', limit = '20', cursor } = query;
 
     const parsedLimit = Math.min(parseInt(limit, 10), 50);
@@ -154,6 +155,8 @@ export class NoteService implements INoteService {
         id: notesTable.id,
         folderId: notesTable.folderId,
         title: notesTable.title,
+        authorName: userProfilesTable.displayName,
+        authorUsername: userProfilesTable.username,
         clientUpdatedAt: notesTable.clientUpdatedAt,
         isArchived: notesTable.isArchived,
         createdAt: notesTable.createdAt,
@@ -167,27 +170,18 @@ export class NoteService implements INoteService {
       .from(notesTable)
       .leftJoin(notesTagsTable, eq(notesTable.id, notesTagsTable.noteId))
       .leftJoin(tagsTable, eq(notesTagsTable.tagId, tagsTable.id))
+      .leftJoin(
+        userProfilesTable,
+        eq(notesTable.userId, userProfilesTable.userId)
+      )
       .where(and(...conditions))
-      .groupBy(notesTable.id)
+      .groupBy(
+        notesTable.id,
+        userProfilesTable.username,
+        userProfilesTable.displayName
+      )
       .orderBy(desc(notesTable.clientUpdatedAt))
       .limit(sqlLimit);
-
-    // 🎨 6. Фронтенд-подсветка найденного текста
-    // if (isSearchActive) {
-    //   const escapedSearch = searchPattern.replace(
-    //     /[-\/\\^\$*+?.()|[\]{}]/g,
-    //     '\\$&'
-    //   );
-    //   const regex = new RegExp(`(${escapedSearch})`, 'gi');
-    //
-    //   rawNotes = rawNotes.map((note) => ({
-    //     ...note,
-    //     preview: (note.preview || '').replace(
-    //       regex,
-    //       '<mark class="bg-amber-500/20 text-amber-300 px-0.5 rounded">\$1</mark>'
-    //     ),
-    //   }));
-    // }
 
     const hasMore = rawNotes.length > parsedLimit;
     const items = hasMore ? rawNotes.slice(0, parsedLimit) : rawNotes;
@@ -197,15 +191,32 @@ export class NoteService implements INoteService {
     const locksMap = await this.noteLockService.getLocksForNotes(noteIds);
 
     // Маппим элементы, внедряя лок-информацию в каждую NotePreview карточку
-    const enrichedItems = items.map((note) => ({
-      ...note,
-      lock: locksMap[note.id] || {
-        isLocked: false,
-        lockedBy: null,
-        lockedByName: null,
-        expiresAt: null,
-      },
-    }));
+    const enrichedItems: NotePreviewDTO[] = items.map((note) => {
+      return {
+        id: note.id,
+        folderId: note.folderId,
+        title: note.title,
+        preview: note.preview,
+        tags: note.tags,
+        clientUpdatedAt: note.clientUpdatedAt,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        // Собираем объект автора из плоского ответа БД
+        author: note.authorUsername
+          ? {
+              username: note.authorUsername,
+              displayName: note.authorName || null,
+            }
+          : null,
+        // Данные из Redis
+        lock: locksMap[note.id] || {
+          isLocked: false,
+          lockedBy: null,
+          lockedByName: null,
+          expiresAt: null,
+        },
+      };
+    });
     // КОНЕЦ ОБОГАЩЕНИЯ
 
     let nextCursor: string | null = null;
@@ -224,16 +235,14 @@ export class NoteService implements INoteService {
   async getNoteById(id: string): Promise<NoteDTO | null> {
     const noteData = await this.db.query.notesTable.findFirst({
       where: (notes, { and, eq }) =>
-        and(
-          eq(notes.id, id),
-          eq(notes.isDeleted, false) // 🚀 Убрали жесткий фильтр по userId!
-        ),
+        and(eq(notes.id, id), eq(notes.isDeleted, false)),
       with: {
         notes_tags: {
           with: {
             tag: true,
           },
         },
+        author: true,
       },
     });
 
@@ -249,14 +258,18 @@ export class NoteService implements INoteService {
       folderId: noteData.folderId,
       title: noteData.title,
       content: noteData.content,
-      isArchived: noteData.isArchived,
-      isDeleted: noteData.isDeleted,
-      userId: noteData.userId,
       clientUpdatedAt: noteData.clientUpdatedAt,
       createdAt: noteData.createdAt,
       updatedAt: noteData.updatedAt,
       tags: tags,
-      preview: (noteData.content || '').substring(0, 150),
+
+      // 🧙‍♂️ Собираем объект автора из реляционных данных
+      author: noteData.author
+        ? {
+            username: noteData.author.username,
+            displayName: noteData.author.displayName || null,
+          }
+        : null,
       // Вживляем статус блокировки в DTO ответа!
       lock: lockInfo,
     };

@@ -9,8 +9,9 @@ import type {
   FolderDTO,
   GetNotesQueryParams,
   Note,
+  NoteDTO,
   NoteLockInfo,
-  NotePreview,
+  NotePreviewDTO,
   PaginatedResponse,
   Tag,
   TagWithCount,
@@ -28,12 +29,12 @@ export interface INoteService {
   getNotes(
     query: GetNotesQueryParams,
     userId: string
-  ): Promise<PaginatedResponse<NotePreview>>;
+  ): Promise<PaginatedResponse<NotePreviewDTO>>;
 
   /**
    * Получение полной заметки по ID (даты: string)
    */
-  getNoteById(id: string): Promise<Note | null>;
+  getNoteById(id: string): Promise<NoteDTO | null>;
 
   /**
    * Создание новой заметки (даты: string)
@@ -131,10 +132,6 @@ export interface IUserService {
   getShareableUsers(
     currentUserId: string
   ): Promise<{ id: string; username: string }[]>;
-}
-
-export interface IAdminService {
-  getNotes(query: any, userId: string): Promise<any>;
 }
 
 export interface LockAcquireResult {

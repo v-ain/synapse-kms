@@ -13,7 +13,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { usersTable } from './user/user-schema.js';
+import { userProfilesTable, usersTable } from './user/user-schema.js';
 
 // СХЕМА ТАБЛИЦЫ FOLDERS
 export const foldersTable = pgTable('folders', {
@@ -159,9 +159,9 @@ export const notesRelations = relations(notesTable, ({ one, many }) => ({
     references: [foldersTable.id],
   }),
   // Заметка принадлежит конкретному автору
-  author: one(usersTable, {
+  author: one(userProfilesTable, {
     fields: [notesTable.userId],
-    references: [usersTable.id],
+    references: [userProfilesTable.userId],
   }),
   notes_tags: many(notesTagsTable), // Связь M2M с тегами
 }));

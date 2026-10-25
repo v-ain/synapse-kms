@@ -1,7 +1,7 @@
 import { Checkbox } from '@/components/ui/checkbox';
 import type { NotePreviewDTO } from '@synapse-kms/shared';
-import { useAuthStore } from '@/store/useAuthStore'; // Подключаем стор для проверки владельца заметки
-import { Lock, User2 } from 'lucide-react'; // Новые компактные иконки для маркеров
+import { useAuthStore } from '@/store/useAuthStore';
+import { Lock, User2, PenTool } from 'lucide-react';
 
 interface NoteCardProps {
   note: NotePreviewDTO;
@@ -18,14 +18,21 @@ export function NoteCard({
   onSelectClick,
   onCardClick,
 }: NoteCardProps) {
-  const currentUserId = useAuthStore((state) => state.userId);
+  // Вытаскиваем username текущего пользователя для проверки владения
+  const currentUsername = useAuthStore((state) => state.username);
 
-  // Проверяем, чужая ли это заметка (если создатель не текущий пользователь)
-  const isSharedNote = note.userId !== currentUserId;
+  // Заменили на сравнение по username из DTO
+  const isSharedNote = note.author && note.author.username !== currentUsername;
 
   // Проверяем состояние распределенной аренды замка из Redis
+  const currentUserId = useAuthStore((state) => state.userId);
   const isLockedBySomeoneElse =
     note.lock?.isLocked && note.lock?.lockedBy !== currentUserId;
+
+  // Красивое отображение имени автора
+  const authorDisplayName = note.author
+    ? note.author.displayName || note.author.username
+    : 'Система';
 
   return (
     <div
@@ -34,7 +41,7 @@ export function NoteCard({
         isActive
           ? 'bg-slate-50 border-slate-300 dark:bg-slate-900 dark:border-slate-700 shadow-sm'
           : 'bg-white border-slate-100 hover:bg-slate-50/50 dark:bg-slate-950 dark:border-slate-900'
-      } ${isLockedBySomeoneElse ? 'opacity-85' : ''}`} // Немного приглушаем заблокированные карточки
+      } ${isLockedBySomeoneElse ? 'opacity-85' : ''}`}
     >
       {/* Чекбокс массового выбора */}
       <div
@@ -51,12 +58,9 @@ export function NoteCard({
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
-            {/* МАРКЕР ШЕРИНГА: если заметка принадлежит коллеге, рисуем аватарку-индикатор */}
+            {/* МАРКЕР ШЕРИНГА: если заметка принадлежит коллеге */}
             {isSharedNote && (
-              <User2
-                className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0"
-                title="Доступная вам заметка"
-              />
+              <User2 className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
             )}
             <span
               className={`font-semibold text-sm leading-none tracking-tight truncate ${
@@ -70,9 +74,9 @@ export function NoteCard({
           </div>
 
           {/* МАРКЕР БЛОКИРОВКИ: статус замка из Redis */}
-          {note.lock?.isLocked ? (
+          {note.lock?.isLocked && (
             <span
-              className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded flex items-center gap-1 max-w-[90px] truncate select-none
+              className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded flex items-center gap-1 max-w-[120px] truncate select-none
                 ${
                   isLockedBySomeoneElse
                     ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-900/50 animate-pulse'
@@ -85,12 +89,12 @@ export function NoteCard({
               }
             >
               <Lock className="h-2.5 w-2.5 shrink-0" />
-              <span>{isLockedBySomeoneElse ? 'Занят' : 'Ваш лок'}</span>
-            </span>
-          ) : (
-            // метка о версии, если замок пуст
-            <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-slate-50 text-slate-400 dark:bg-slate-900/50 border dark:border-slate-900">
-              v{note.version || 1}
+              {/* Вместо безликого 'Занят' выводим имя того, кто залочил строку в Redis */}
+              <span>
+                {isLockedBySomeoneElse
+                  ? note.lock.lockedByName || 'Занят'
+                  : 'Ваш лок'}
+              </span>
             </span>
           )}
         </div>
@@ -100,19 +104,33 @@ export function NoteCard({
           {note.preview ? note.preview : 'Пустая заметка...'}
         </p>
 
-        {/* Теги */}
-        {note.tags && note.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 pt-1">
-            {note.tags.map((tag) => (
-              <span
-                key={tag}
-                className="text-[10px] font-medium px-1.5 py-0.2 rounded-full bg-slate-50 text-slate-500 border dark:bg-slate-900 dark:text-slate-400"
-              >
-                #{tag}
-              </span>
-            ))}
+        {/* ПОДВАЛ КАРТОЧКИ: Теги + Автор */}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          {/* Теги */}
+          <div className="flex flex-wrap gap-1 min-w-0">
+            {note.tags &&
+              note.tags.length > 0 &&
+              note.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[10px] font-medium px-1.5 py-0.2 rounded-full bg-slate-50 text-slate-500 border dark:bg-slate-900 dark:text-slate-400 truncate max-w-[80px]"
+                >
+                  #{tag}
+                </span>
+              ))}
           </div>
-        )}
+
+          {/* МАРКЕР АВТОРА: Тонкий бейдж, отображаемый для чужих (или всех) заметок */}
+          {note.author && (
+            <div
+              className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-md border border-slate-200 bg-slate-50/50 text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400 shrink-0 max-w-[100px]"
+              title={`Владелец заметки: ${note.author.username}`}
+            >
+              <PenTool className="h-2.5 w-2.5 opacity-70 shrink-0" />
+              <span className="truncate">{authorDisplayName}</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
