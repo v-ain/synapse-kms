@@ -104,7 +104,11 @@ export const notesTagsTable = pgTable(
 );
 
 // 1. Создаем перечисление (Enum) для уровней доступа прямо в PostgreSQL
-export const accessLevelEnum = pgEnum('access_level', ['read', 'write']);
+export const accessLevelEnum = pgEnum('access_level', [
+  'read',
+  'write',
+  'owner',
+]);
 
 export const folderSharesTable = pgTable(
   'folder_shares',

@@ -19,6 +19,7 @@ import type {
   NoteWithTags,
   NoteDTO,
   NotePreviewDTO,
+  NoteAccessResult,
 } from '@synapse-kms/shared';
 
 import { INoteLockService, INoteService } from '@synapse-kms/trpc';
@@ -34,21 +35,78 @@ export class NoteService implements INoteService {
     private userRepository: any
   ) {}
 
-  // Получить только метаданные для проверки безопасности
-  async getNoteMeta(
-    id: string
-  ): Promise<{ userId: string; folderId: string | null } | null> {
-    const meta = await this.db.query.notesTable.findFirst({
-      where: (notes, { and, eq }) =>
-        and(eq(notes.id, id), eq(notes.isDeleted, false)),
-      columns: {
-        userId: true,
-        folderId: true,
-      },
-    });
+  /**
+   * УНИФИЦИРОВАННЫЙ КОНТРОЛЬ ДОСТУПА К ЗАМЕТКАМ (Наследование прав из папок)
+   * Объединяет Inbox, создателей и гостей в один ультра-быстрый SQL-запрос
+   */
+  async checkNoteAccess(
+    noteId: string,
+    userId: string
+  ): Promise<NoteAccessResult> {
+    // Одним запросом забираем заметку, владельца папки и уровень прав текущего юзера
+    const [row] = await this.db
+      .select({
+        noteOwnerId: notesTable.userId, // Кто создал саму заметку
+        folderId: notesTable.folderId, // В какой папке лежит
+        folderOwnerId: foldersTable.userId, // Кто владеет папкой-родителем
+        guestAccessLevel: folderSharesTable.accessLevel, // Права текущего юзера на эту папку
+      })
+      .from(notesTable)
+      // Привязываем папку, чтобы узнать её создателя
+      .leftJoin(foldersTable, eq(notesTable.folderId, foldersTable.id))
+      // Привязываем таблицу доступов по составному условию (папка + текущий юзер)
+      .leftJoin(
+        folderSharesTable,
+        and(
+          eq(notesTable.folderId, folderSharesTable.folderId),
+          eq(folderSharesTable.userId, userId)
+        )
+      )
+      .where(
+        and(
+          eq(notesTable.id, noteId),
+          eq(notesTable.isDeleted, false) // Защита: игнорируем удаленные заметки
+        )
+      )
+      .limit(1);
 
-    return meta || null;
+    // 1. Заметка не найдена в системе
+    if (!row) {
+      return { hasAccess: false, accessLevel: null, isOwner: false };
+    }
+
+    // 2. Кейс: Заметка находится в Inbox (личная корзина, folderId === null)
+    if (!row.folderId) {
+      const isOwner = row.noteOwnerId === userId;
+      return {
+        hasAccess: isOwner,
+        accessLevel: isOwner ? 'owner' : null,
+        isOwner,
+      };
+    }
+
+    // 3. Кейс: Текущий пользователь — создатель/владелец папки
+    if (row.folderOwnerId === userId) {
+      return {
+        hasAccess: true,
+        accessLevel: 'owner',
+        isOwner: true,
+      };
+    }
+
+    // 4. Кейс: Папка расшарена текущему пользователю (он гость с 'read' или 'write')
+    if (row.guestAccessLevel) {
+      return {
+        hasAccess: true,
+        accessLevel: row.guestAccessLevel as 'read' | 'write' | 'owner',
+        isOwner: false,
+      };
+    }
+
+    // 5. Тотальный отказ: папка существует, но юзер к ней не имеет отношения
+    return { hasAccess: false, accessLevel: null, isOwner: false };
   }
+
   // 1. ПОЛУЧИТЬ КУРСОРНУЮ ПАГИНАЦИЮ ЗАМЕТОК (Highload O(1) с тегами)
   async getNotes(
     query: GetNotesQueryParams,
@@ -351,23 +409,47 @@ export class NoteService implements INoteService {
   ): Promise<{ success: true; movedIds: string[] }> {
     const { items, targetFolderId } = payload;
     const movedIds: string[] = [];
+    const currentIsoString = new Date().toISOString();
 
-    // БОЛЬШЕ НИКАКИХ ТРАНЗАКЦИЙ, СЕЛЕКТОВ СТАРЫХ ПАПОК И ЦИКЛОВ ОБНОВЛЕНИЯ СЧЕТЧИКОВ!
-    // Массовое обновление с Lock-Free LWW-защитой для каждой заметки.
+    // Массовое обновление с Lock-Free LWW-защитой и динамическим ACL
     for (const item of items) {
       const [updated] = await this.db
         .update(notesTable)
         .set({
-          folderId: targetFolderId || null, // null означает Inbox
+          folderId: targetFolderId || null, // Перемещаем в целевую папку или Inbox
           clientUpdatedAt: item.clientUpdatedAt,
-          updatedAt: new Date().toISOString(),
+          updatedAt: currentIsoString,
         })
         .where(
           and(
             eq(notesTable.id, item.id),
-            eq(notesTable.userId, userId),
-            // Атомарный фильтр времени LWW: пишем, только если пришедший пакет новее версии в СУБД
-            lt(notesTable.clientUpdatedAt, item.clientUpdatedAt)
+            // Атомарный фильтр времени LWW
+            lt(notesTable.clientUpdatedAt, item.clientUpdatedAt),
+
+            // ХИТРЫЙ ACL ФИЛЬТР НА УРОВНЕ СУБД:
+            // Пользователь может сдвинуть заметку, ТУЛЬКО если:
+            or(
+              // Кейс А: Он физический создатель этой конкретной заметки
+              eq(notesTable.userId, userId),
+
+              // Кейс Б: Заметка лежит в папке, на которую у пользователя есть права 'write' или 'owner'
+              exists(
+                this.db
+                  .select()
+                  .from(folderSharesTable)
+                  .where(
+                    and(
+                      eq(folderSharesTable.folderId, notesTable.folderId),
+                      eq(folderSharesTable.userId, userId),
+                      // Проверяем, что роль гостя в этой папке позволяет редактировать
+                      or(
+                        eq(folderSharesTable.accessLevel, 'write'),
+                        eq(folderSharesTable.accessLevel, 'owner')
+                      )
+                    )
+                  )
+              )
+            )
           )
         )
         .returning({ id: notesTable.id });
@@ -377,38 +459,25 @@ export class NoteService implements INoteService {
       }
     }
 
-    // Возвращаем фронтенду массив ID заметок, которые реально сменили локацию
     return { success: true, movedIds };
   }
 
   // 5. АРХИВАЦИЯ ЗАМЕТКИ (Чистая атомарная логика без транзакций и пересчетов)
   async archiveNote(
-    id: string,
-    userId: string
-  ): Promise<
-    { error: string; status: number } | { error: null; success: true }
-  > {
-    // 🚀 ОДИН АТОМАРНЫЙ ЗАПРОС: Сразу маркируем архив и проверяем автора
+    noteId: string
+  ): Promise<{ success: boolean; error?: string; status?: number }> {
+    // Просто точечно обновляем статус заметки в базе данных
     const [updatedNote] = await this.db
       .update(notesTable)
-      .set({
-        isArchived: true,
-        updatedAt: sql`CURRENT_TIMESTAMP`,
-      })
-      .where(
-        and(
-          eq(notesTable.id, id),
-          eq(notesTable.userId, userId) // Защита: архивировать может только создатель
-        )
-      )
-      .returning(); // Нам больше не нужно вытаскивать folderId для счетчиков!
+      .set({ isArchived: true, updatedAt: sql`CURRENT_TIMESTAMP` })
+      .where(and(eq(notesTable.id, noteId), eq(notesTable.isDeleted, false)))
+      .returning();
 
-    // Если база вернула пустой массив, значит заметка не существует или она чужая
     if (!updatedNote) {
-      return { error: 'Заметка не найдена или у вас нет прав', status: 404 };
+      return { success: false, error: 'Заметка не найдена', status: 404 };
     }
 
-    return { error: null, success: true };
+    return { success: true };
   }
 
   /**

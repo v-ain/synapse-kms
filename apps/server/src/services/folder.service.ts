@@ -8,7 +8,6 @@ import type {
   DeleteFolderPayload,
   Folder,
   FolderAccessResult,
-  FolderWithRole,
 } from '@synapse-kms/shared';
 import { DrizzleDB } from 'src/db.js';
 import { IFolderService } from '@synapse-kms/trpc';
@@ -24,43 +23,41 @@ export class FolderService implements IFolderService {
     folderId: string,
     userId: string
   ): Promise<FolderAccessResult> {
-    // Выполняем один быстрый реляционный запрос
-    const folder = await this.db.query.foldersTable.findFirst({
-      where: (folders, { eq }) => eq(folders.id, folderId),
-      with: {
-        shares: {
-          where: (shares, { eq }) => eq(shares.userId, userId),
-        },
-      },
-    });
+    // Прямой точечный удар по таблице доступов через B-Tree индекс
+    const [shareRecord] = await this.db
+      .select({
+        accessLevel: folderSharesTable.accessLevel,
+      })
+      .from(folderSharesTable)
+      .where(
+        and(
+          eq(folderSharesTable.folderId, folderId),
+          eq(folderSharesTable.userId, userId)
+        )
+      )
+      .limit(1);
 
-    // 1. Папка не существует в природе
-    if (!folder) {
-      return { hasAccess: false, role: null };
-    }
-
-    // 2. Текущий пользователь является создателем/владельцем папки
-    if (folder.userId === userId) {
+    // 1. Если записи нет — пользователь не имеет отношения к папке
+    // (Либо папки вообще не существует в природе)
+    if (!shareRecord) {
       return {
-        hasAccess: true,
-        role: 'owner',
-        accessLevel: 'write', // Владелец всегда имеет права на запись
+        hasAccess: false,
+        role: null,
+        accessLevel: null,
       };
     }
 
-    // 3. Папка расшарена на этого пользователя (проверяем запись из таблицы-моста)
-    if (folder.shares.length > 0) {
-      const shareRecord = folder.shares[0];
-      return {
-        hasAccess: true,
-        role: 'guest',
-        accessLevel: shareRecord.accessLevel, // 'read' или 'write'
-      };
-    }
+    const level = shareRecord.accessLevel as 'read' | 'write' | 'owner';
+    const isOwner = level === 'owner';
 
-    // 4. Папка существует, но пользователь к ней не имеет никакого отношения
-    return { hasAccess: false, role: null };
+    // 2. Отдаем однородный, чистый и предсказуемый результат
+    return {
+      hasAccess: true,
+      role: isOwner ? 'owner' : 'guest',
+      accessLevel: level, // 'read' | 'write' | 'owner'
+    };
   }
+
   // 1. ПОЛУЧИТЬ ВСЕ ДОСТУПНЫЕ ПАПКИ (Личные + Расшаренные)
   async getFolders(userId: string) {
     const rows = await this.db
@@ -68,16 +65,22 @@ export class FolderService implements IFolderService {
         id: foldersTable.id,
         title: foldersTable.title,
         createdAt: foldersTable.createdAt,
-        userId: foldersTable.userId,
-        isDeleted: foldersTable.isDeleted,
-        // 📊 Считаем количество заметок динамически.
-        // База вернет 0, если заметок в папке нет.
+        ownerId: foldersTable.userId, // Переименовали для прозрачности контекста
+        // Наш однородный ACL уровень доступа летит прямо на фронтенд!
+        accessLevel: folderSharesTable.accessLevel,
+        // Считаем количество живых заметок в папке
         notesCount: sql<number>`COALESCE(count(${notesTable.id})::int, 0)`,
-        // 🔔 Будущая фича непрочитанных (вот так легко она добавится!):
-        // unreadCount: sql<number>`count(${notesTable.id}) filter (where not ${notesTable.isRead})::int`
       })
-      .from(foldersTable)
-      // Делаем LEFT JOIN к заметкам, чтобы посчитать их (только не удаленные!)
+      .from(folderSharesTable)
+      // 1. Жестко вяжем саму папку (только не удаленную)
+      .innerJoin(
+        foldersTable,
+        and(
+          eq(folderSharesTable.folderId, foldersTable.id),
+          eq(foldersTable.isDeleted, false)
+        )
+      )
+      // 2. Мягко вяжем живые заметки для подсчета счетчика
       .leftJoin(
         notesTable,
         and(
@@ -85,30 +88,29 @@ export class FolderService implements IFolderService {
           eq(notesTable.isDeleted, false)
         )
       )
-      // Подключаем таблицу доступов
-      .leftJoin(
-        folderSharesTable,
-        eq(folderSharesTable.folderId, foldersTable.id)
-      )
-      // Фильтруем: папка должна быть не удалена И принадлежать юзеру ИЛИ быть расшаренной на него
-      .where(
-        and(
-          eq(foldersTable.isDeleted, false),
-          sql`(${foldersTable.userId} = ${userId} OR ${folderSharesTable.userId} = ${userId})`
-        )
-      )
-      // Группируем по уникальным полям папки, чтобы агрегат count() отработал корректно
-      .groupBy(foldersTable.id)
+      // ФИЛЬТР: Выгребаем только то, к чему у этого юзера есть запись в ACL
+      .where(eq(folderSharesTable.userId, userId))
+      // Группируем по ID доступов и папки, чтобы агрегат count() работал корректно
+      .groupBy(folderSharesTable.id, foldersTable.id)
       .orderBy(desc(foldersTable.createdAt));
 
-    // Проставляем флаг isShared на основе сравнения создателя
+    // Превращаем плоские строки базы в обогащенные DTO для фронтенда
     return rows.map((row) => ({
-      ...row,
-      isShared: row.userId !== userId,
+      id: row.id,
+      title: row.title,
+      createdAt: row.createdAt,
+      notesCount: row.notesCount,
+
+      // фолбэк для обратной совместимости
+      userId: row.ownerId,
+      // Больше никаких ручных вычислений флага!
+      // Если уровень доступа не owner — значит папка расшарена нам извне. Чисто и понятно.
+      isShared: row.accessLevel !== 'owner',
+      accessLevel: row.accessLevel as 'read' | 'write' | 'owner',
     }));
   }
 
-  // 2. МЕТОД ДЛЯ ВЫДАЧИ ПРАВ (С конвертацией Email -> ID и LWW/OnConflict защитой)
+  // 2. МЕТОД ДЛЯ ВЫДАЧИ ПРАВ (ОЧИЩЕННЫЙ ACL)
   async shareFolder(params: {
     folderId: string;
     ownerId: string;
@@ -121,28 +123,14 @@ export class FolderService implements IFolderService {
   }> {
     const { folderId, ownerId, username, accessLevel } = params;
 
-    // 1. Проверяем, что запрашивающий — реально владелец папки (Реляционный стиль)
-    const ownedFolder = await this.db.query.foldersTable.findFirst({
-      where: (folders, { and, eq }) =>
-        and(
-          eq(folders.id, folderId),
-          eq(folders.userId, ownerId),
-          eq(folders.isDeleted, false)
-        ),
-    });
+    // 1. ownedFolder БОЛЬШЕ НЕ ПИШЕМ! Безопасность гарантирована шлюзом.
 
-    if (!ownedFolder) {
-      throw new Error(
-        '403: Папка не найдена или вы не являетесь её владельцем'
-      );
-    }
-
-    // 2. Идем в UserService за ID целевого пользователя
+    // 2. Идем в UserService за ID целевого пользователя (по нашему новому методу поиска)
     const targetUser = await this.userService.findByUsername(username);
 
     if (!targetUser) {
       throw new Error(
-        '404: Пользователь с таким никнеймом не зарегистрирован в системе'
+        `404: Пользователь с никнеймом ${username} не зарегистрирован в системе`
       );
     }
 
@@ -158,7 +146,7 @@ export class FolderService implements IFolderService {
         userId: targetUser.id,
         accessLevel,
       })
-      // Если папка уже была расшарена этому юзеру, просто атомарно обновляем ему роль (например, с read на write)
+      // Если папка уже была расшарена, атомарно обновляем ему роль (с read на write и наоборот)
       .onConflictDoUpdate({
         target: [folderSharesTable.folderId, folderSharesTable.userId],
         set: { accessLevel },
@@ -168,65 +156,72 @@ export class FolderService implements IFolderService {
     return {
       success: true,
       sharedWith: targetUser.username,
-      accessLevel: shareRecord.accessLevel,
+      accessLevel: shareRecord.accessLevel as 'read' | 'write',
     };
   }
 
-  // Создать новую папку
+  /**
+   * Создать новую папку с автоматической регистрацией владельца в ACL
+   */
   async createFolder(title: string, userId: string): Promise<Folder> {
-    const [folder] = await this.db
-      .insert(foldersTable)
-      .values({
-        title: title.trim(),
-        userId: userId,
-      })
-      .returning();
+    // Открываем транзакцию, чтобы обе записи создались одновременно
+    return await this.db.transaction(async (tx) => {
+      // 1. Создаем саму папку в folders
+      const [folder] = await tx
+        .insert(foldersTable)
+        .values({
+          title: title.trim(),
+          userId: userId, // Оставляем для обратной совместимости метаданных
+        })
+        .returning();
 
-    return folder;
+      // 2. КРИТИЧЕСКИЙ ШАГ ACL: Регистрируем создателя как 'owner' в таблице доступов
+      await tx.insert(folderSharesTable).values({
+        folderId: folder.id,
+        userId: userId,
+        accessLevel: 'owner', // Наша новая однородная роль!
+      });
+
+      // Возвращаем созданную папку наружу
+      return folder;
+    });
   }
 
-  async deleteFolder(
-    payload: DeleteFolderPayload,
-    userId: string
-  ): Promise<boolean> {
+  async deleteFolder(payload: DeleteFolderPayload): Promise<boolean> {
     const { id, clientUpdatedAt } = payload;
     const currentIsoString = new Date().toISOString();
 
     const success = await this.db.transaction(async (tx) => {
-      // А. Пытаемся пометить папку как удаленную.
-      // Если она уже удалена или принадлежит другому юзеру — вернется пустой массив.
+      // А. Помечаем папку как удаленную. Ищем строго по id папки!
       const [deletedFolder] = await tx
         .update(foldersTable)
         .set({ isDeleted: true })
-        .where(
-          and(
-            eq(foldersTable.id, id),
-            eq(foldersTable.userId, userId),
-            eq(foldersTable.isDeleted, false)
-          )
-        )
+        .where(and(eq(foldersTable.id, id), eq(foldersTable.isDeleted, false)))
         .returning({ id: foldersTable.id });
 
-      // Если папка не найдена или уже удалена, прерываем транзакцию и возвращаем false
+      // Если папка не найдена или уже удалена, прерываем транзакцию
       if (!deletedFolder) {
         return false;
       }
 
+      // ЧИСТИМ ACL ХВОСТЫ: Поскольку это Soft Delete папки,
+      // удаляем все записи доступов для этой папки вручную!
+      await tx
+        .delete(folderSharesTable)
+        .where(eq(folderSharesTable.folderId, id));
       // Б. Выбрасываем живые заметки из этой папки во Входящие (NULL)
-      // Обновляем их timestamps под стратегию LWW
+      // ВНИМАНИЕ: мы убрали eq(notesTable.userId, userId)!
+      // Теперь даже если гость создал заметку в этой папке, при удалении папки владельцем
+      // ВСЕ заметки внутри неё безопасно вылетят в Inbox своих создателей!
       await tx
         .update(notesTable)
         .set({
           folderId: null,
-          clientUpdatedAt: clientUpdatedAt, // Метка времени от действия пользователя
-          updatedAt: currentIsoString, // Серверный аудит
+          clientUpdatedAt: clientUpdatedAt,
+          updatedAt: currentIsoString,
         })
         .where(
-          and(
-            eq(notesTable.folderId, id),
-            eq(notesTable.userId, userId),
-            eq(notesTable.isDeleted, false)
-          )
+          and(eq(notesTable.folderId, id), eq(notesTable.isDeleted, false))
         );
 
       return true;

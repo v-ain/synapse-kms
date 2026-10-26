@@ -25,7 +25,7 @@ export const SYSTEM_EVENTS = {
 export type Folder = InferSelectModel<typeof foldersTable>;
 
 // Полноценный DTO, который реально возвращает репозиторий/сервис чтений
-export type FolderDTO = Folder & {
+export type FolderDTO = Omit<Folder, 'isDeleted'> & {
   notesCount: number;
   isShared: boolean;
 };
@@ -38,7 +38,7 @@ export type FolderWithRole = FolderDTO & {
 export interface FolderAccessResult {
   hasAccess: boolean;
   role: 'owner' | 'guest' | null;
-  accessLevel?: 'read' | 'write';
+  accessLevel?: 'read' | 'write' | 'owner' | null;
 }
 
 // Схема для создания папки
@@ -221,3 +221,9 @@ export interface UserDTO {
     maxNotes: number;
   };
 }
+
+export type NoteAccessResult = {
+  hasAccess: boolean;
+  accessLevel: 'read' | 'write' | 'owner' | null;
+  isOwner: boolean;
+};

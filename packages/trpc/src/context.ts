@@ -9,6 +9,7 @@ import type {
   FolderDTO,
   GetNotesQueryParams,
   Note,
+  NoteAccessResult,
   NoteDTO,
   NoteLockInfo,
   NotePreviewDTO,
@@ -20,9 +21,8 @@ import type {
 } from '@synapse-kms/shared';
 
 export interface INoteService {
-  getNoteMeta(
-    id: string
-  ): Promise<{ userId: string; folderId: string | null } | null>;
+  checkNoteAccess(noteId: string, userId: string): Promise<NoteAccessResult>;
+
   /**
    * Получение пагинированного списка превью заметок (даты: string)
    */
@@ -50,12 +50,8 @@ export interface INoteService {
    * Архивация заметки
    */
   archiveNote(
-    id: string,
-    userId: string
-  ): Promise<
-    | { error: string; status: number; success?: never }
-    | { error: null; success: true; status?: never }
-  >;
+    id: string
+  ): Promise<{ success: boolean; error?: string; status?: number }>;
 
   /**
    * Массовое перемещение заметок с атомарной защитой Last-Write-Wins (LWW)
@@ -81,7 +77,7 @@ export interface IFolderService {
    * Безопасное удаление папки (Soft delete) с освобождением заметок по LWW
    * Возвращает true, если папка успешно удалена, либо false, если она не найдена/удалена ранее
    */
-  deleteFolder(payload: DeleteFolderPayload, userId: string): Promise<boolean>;
+  deleteFolder(payload: DeleteFolderPayload): Promise<boolean>;
 
   /**
    * Проверка прав доступа пользователя к конкретной папке (Владелец / Шеринг)

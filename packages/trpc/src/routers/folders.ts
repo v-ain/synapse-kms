@@ -13,30 +13,29 @@ export const foldersRouter = router({
   create: protectedProcedure
     .input(CreateFolderSchema)
     .mutation(async ({ input, ctx }) => {
+      // Сервис сам внутри транзакции создаст и папку, и запись в ACL!
       return await ctx.folderService.createFolder(input.title, ctx.userId);
     }),
 
   // 3. Безопасное удаление папки
-  delete: folderScopedProcedure // Защищаем шлюзом прав на запись
-    .input(DeleteFolderSchema) // Передаем полную схему, фронтенд видит все нужные поля
+  delete: folderScopedProcedure
+    .input(DeleteFolderSchema)
     .mutation(async ({ input, ctx }) => {
-      // 1. Проверяем роль, которую мидлвар ОПРЕДЕЛИЛ ПО UUID ИЗ БАЗЫ ДАННЫХ
-      // 1. Дополнительная защита: удалять папку может ТОЛЬКО владелец (owner)
-      // Гость с правами write (folderAccessLevel === 'write') сюда не пройдёт!
-      if (ctx.folderRole !== 'owner') {
+      // 1. ИСПОЛЬЗУЕМ ACL: Удалять папку может ТОЛЬКО пользователь с уровнем прав 'owner'
+      // Кастим к string для dev-режима
+      if ((ctx.folderAccessLevel as string) !== 'owner') {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Только владелец может удалить эту папку',
         });
       }
 
-      // 2. Вызываем сервис. Из контекста берем targetFolderId, который прошел проверку в базе!
-      const success = await ctx.folderService.deleteFolder(
-        { id: ctx.targetFolderId, clientUpdatedAt: input.clientUpdatedAt },
-        ctx.userId
-      );
+      // 2. Вызываем полностью очищенный сервис! Больше не передаем ctx.userId внутрь
+      const success = await ctx.folderService.deleteFolder({
+        id: ctx.targetFolderId,
+        clientUpdatedAt: input.clientUpdatedAt,
+      });
 
-      // Фолбэк на случай, если что-то пошло не так на уровне СУБД
       if (!success) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -51,15 +50,13 @@ export const foldersRouter = router({
   shareFolder: folderScopedProcedure
     .input(
       z.object({
-        // Поле id валидируется на входе, фронтенд обязан его передать
         username: z.string(),
         accessLevel: z.enum(['read', 'write']).default('read'),
       })
     )
     .mutation(async ({ input, ctx }) => {
-      // 1. Жёсткая проверка роли: шерить папку может ТОЛЬКО создатель (owner)
-      // Гости, даже с правами 'write', не имеют права раздавать чужую папку другим людям!
-      if (ctx.folderRole !== 'owner') {
+      // 1. ИСПОЛЬЗУЕМ ОДНОРОДНЫЙ ACL: Управлять доступом может ТОЛЬКО пользователь с уровнем 'owner'
+      if ((ctx.folderAccessLevel as string) !== 'owner') {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'У вас нет прав на управление доступом к этой папке',
@@ -67,25 +64,19 @@ export const foldersRouter = router({
       }
 
       try {
-        // 2. Вызываем метод сервиса, передавая 100% проверенный ID из контекста
+        // 2. Вызываем метод сервиса, передавая проверенный ID папки из контекста безопасности
         const result = await ctx.folderService.shareFolder({
-          folderId: ctx.targetFolderId, // 🛡️ Никаких input.id, только защищенный контекст мидлвара!
-          ownerId: ctx.userId,
+          folderId: ctx.targetFolderId, // 🛡️ Взято из мидлвара
+          ownerId: ctx.userId, // Для проверки, чтобы не расшарить самому себе
           username: input.username,
           accessLevel: input.accessLevel,
         });
 
         return result;
       } catch (error: any) {
-        // Обрабатываем понятные ошибки из бизнес-логики
+        // Обрабатываем понятные ошибки бизнес-логики (пользователь не найден)
         if (error.message.includes('404')) {
           throw new TRPCError({ code: 'NOT_FOUND', message: error.message });
-        }
-        if (error.message.includes('403')) {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'Доступ запрещен',
-          });
         }
         throw new TRPCError({
           code: 'BAD_REQUEST',
