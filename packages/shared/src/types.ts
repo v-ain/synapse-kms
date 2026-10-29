@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
 import { foldersTable, notesTable, tagsTable } from './schema/db-schema.js';
-import { NOTE_LIMITS } from './constants.js';
 import type { usersTable } from './schema/user/user-schema.js';
 
 export type Note = InferSelectModel<typeof notesTable> & {
@@ -96,41 +95,6 @@ export interface PaginatedResponse<T> {
   hasMore: boolean;
 }
 
-// СХЕМЫ ВАЛИДАЦИИ ZOD (Enterprise-слой)
-// packages/shared/src/schemas/notes.ts
-// Схема создания заметки
-export const CreateNoteSchema = z.object({
-  title: z
-    .string()
-    .min(NOTE_LIMITS.TITLE_MIN, 'TITLE_EMPTY')
-    .max(NOTE_LIMITS.TITLE_MAX, 'TITLE_TOO_LONG')
-    .transform((val) => val.trim()),
-  content: z
-    .string()
-    .max(NOTE_LIMITS.CONTENT_MAX, 'CONTENT_TOO_LONG')
-    .default(''),
-  folderId: z.string().uuid().nullable(),
-});
-
-// Zod-схемы для апдейта заметки
-export const UpdateNotePayloadSchema = z.object({
-  id: z.string().uuid(),
-  // Заменяем version на обязательную ISO-строку даты изменения
-  clientUpdatedAt: z.string().datetime({ offset: true }),
-  title: z
-    .string()
-    .min(NOTE_LIMITS.TITLE_MIN, 'TITLE_EMPTY')
-    .max(NOTE_LIMITS.TITLE_MAX, 'TITLE_TOO_LONG')
-    .optional(),
-  content: z
-    .string()
-    .max(NOTE_LIMITS.CONTENT_MAX, 'CONTENT_TOO_LONG')
-    .optional(),
-});
-
-// Тип автоматически выведется правильно:
-export type UpdateNotePayload = z.infer<typeof UpdateNotePayloadSchema>;
-
 // Схема пакетного перемещения заметок
 export const BulkMovePayloadSchema = z.object({
   items: z
@@ -145,7 +109,6 @@ export const BulkMovePayloadSchema = z.object({
 });
 
 // TS-типы строятся по схемам валидации!
-export type CreateNotePayload = z.infer<typeof CreateNoteSchema>;
 export type BulkMovePayload = z.infer<typeof BulkMovePayloadSchema>;
 
 // Описываем допустимые значения для фильтра
@@ -222,8 +185,18 @@ export interface UserDTO {
   };
 }
 
-export type NoteAccessResult = {
-  hasAccess: boolean;
-  accessLevel: 'read' | 'write' | 'owner' | null;
-  isOwner: boolean;
+//auth/auth.schema.ts
+export const UserRoleSchema = z.enum(['admin', 'user']);
+export type UserRole = z.infer<typeof UserRoleSchema>;
+
+export const JwtPayloadSchema = z.object({
+  userId: z.string().uuid(),
+  userRole: UserRoleSchema,
+});
+
+export type JwtPayload = z.infer<typeof JwtPayloadSchema>;
+
+export type UserContext = {
+  id: string;
+  role: UserRole;
 };

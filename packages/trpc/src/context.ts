@@ -1,7 +1,9 @@
 import type { EventEmitter } from 'events';
 import type {
   AttachTagPayload,
+  AutoSaveNotePayload,
   BulkMovePayload,
+  CheckNoteAccessResult,
   CreateNotePayload,
   DeleteFolderPayload,
   Folder,
@@ -9,19 +11,23 @@ import type {
   FolderDTO,
   GetNotesQueryParams,
   Note,
-  NoteAccessResult,
   NoteDTO,
   NoteLockInfo,
   NotePreviewDTO,
+  NoteWriteResult,
   PaginatedResponse,
   Tag,
   TagWithCount,
-  UpdateNotePayload,
+  UpdateNoteMetaPayload,
+  UserContext,
   UserEntity,
 } from '@synapse-kms/shared';
 
 export interface INoteService {
-  checkNoteAccess(noteId: string, userId: string): Promise<NoteAccessResult>;
+  checkNoteAccess(
+    noteId: string,
+    userId: string
+  ): Promise<CheckNoteAccessResult>;
 
   /**
    * Получение пагинированного списка превью заметок (даты: string)
@@ -41,10 +47,15 @@ export interface INoteService {
    */
   createNote(payload: CreateNotePayload, userId: string): Promise<Note>;
 
-  /**
-   * Обновление данных заметки с проверкой версии (Optimistic Lock)
-   */
-  updateNote(payload: UpdateNotePayload): Promise<Note | null>;
+  updateMeta(
+    payload: UpdateNoteMetaPayload,
+    actorUserId: string
+  ): Promise<NoteWriteResult>;
+
+  autoSaveContent(
+    payload: AutoSaveNotePayload,
+    actorUserId: string
+  ): Promise<NoteWriteResult>;
 
   /**
    * Архивация заметки
@@ -168,8 +179,7 @@ export interface ContextOptions {
   userService: IUserService;
   noteLockService: INoteLockService;
   eventEmitter: EventEmitter;
-  userId: string | null;
-  userRole: string | null;
+  user: UserContext | null;
   setAuthCookie?: (token: string) => void;
 }
 
@@ -182,8 +192,7 @@ export function createContext(opts: ContextOptions) {
     userService: opts.userService,
     noteLockService: opts.noteLockService,
     eventEmitter: opts.eventEmitter,
-    userId: opts.userId,
-    userRole: opts.userRole,
+    user: opts.user,
     setAuthCookie: opts.setAuthCookie,
   };
 }

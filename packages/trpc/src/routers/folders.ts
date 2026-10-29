@@ -6,7 +6,7 @@ import z from 'zod';
 export const foldersRouter = router({
   // Получение всех папок пользователя
   getFolders: protectedProcedure.query(async ({ ctx }) => {
-    return await ctx.folderService.getFolders(ctx.userId);
+    return await ctx.folderService.getFolders(ctx.user.id);
   }),
 
   // Создание новой папки
@@ -14,7 +14,7 @@ export const foldersRouter = router({
     .input(CreateFolderSchema)
     .mutation(async ({ input, ctx }) => {
       // Сервис сам внутри транзакции создаст и папку, и запись в ACL!
-      return await ctx.folderService.createFolder(input.title, ctx.userId);
+      return await ctx.folderService.createFolder(input.title, ctx.user.id);
     }),
 
   // 3. Безопасное удаление папки
@@ -67,7 +67,7 @@ export const foldersRouter = router({
         // 2. Вызываем метод сервиса, передавая проверенный ID папки из контекста безопасности
         const result = await ctx.folderService.shareFolder({
           folderId: ctx.targetFolderId, // 🛡️ Взято из мидлвара
-          ownerId: ctx.userId, // Для проверки, чтобы не расшарить самому себе
+          ownerId: ctx.user.id, // Для проверки, чтобы не расшарить самому себе
           username: input.username,
           accessLevel: input.accessLevel,
         });

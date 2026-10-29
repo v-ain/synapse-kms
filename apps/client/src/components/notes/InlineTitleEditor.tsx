@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useUpdateNote } from '@/hooks';
+import { useUpdateNoteMeta } from '@/hooks';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Pencil, Check, Loader2 } from 'lucide-react';
@@ -14,7 +14,7 @@ export function InlineTitleEditor({
   currentTitle,
 }: InlineTitleEditorProps) {
   // Достаем метод и статус из обновленного LWW-хука
-  const { updateNote, isPending } = useUpdateNote();
+  const { updateNote, isPending } = useUpdateNoteMeta();
   const [isEditing, setIsEditing] = useState(false);
 
   // Благодаря key={id} на родителе стейт инициализируется ОДИН раз при монтировании!
@@ -43,7 +43,7 @@ export function InlineTitleEditor({
     // Отправляем данные на сервер с колбэками новой модели
     updateNote(
       {
-        id: noteId,
+        noteId: noteId,
         title: finalTitle,
       },
       {

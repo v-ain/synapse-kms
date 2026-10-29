@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { trpc } from '../../utils/trpc';
 import { useShareFolder } from '../../hooks';
 import {

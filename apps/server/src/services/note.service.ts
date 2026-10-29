@@ -15,11 +15,13 @@ import type {
   BulkMovePayload,
   PaginatedResponse,
   GetNotesQueryParams,
-  UpdateNotePayload,
   NoteWithTags,
   NoteDTO,
   NotePreviewDTO,
-  NoteAccessResult,
+  AutoSaveNotePayload,
+  CheckNoteAccessResult,
+  NoteWriteResult,
+  UpdateNoteMetaPayload,
 } from '@synapse-kms/shared';
 
 import { INoteLockService, INoteService } from '@synapse-kms/trpc';
@@ -39,22 +41,20 @@ export class NoteService implements INoteService {
    * УНИФИЦИРОВАННЫЙ КОНТРОЛЬ ДОСТУПА К ЗАМЕТКАМ (Наследование прав из папок)
    * Объединяет Inbox, создателей и гостей в один ультра-быстрый SQL-запрос
    */
+  // packages/api/src/modules/note/note.service.ts
   async checkNoteAccess(
     noteId: string,
     userId: string
-  ): Promise<NoteAccessResult> {
-    // Одним запросом забираем заметку, владельца папки и уровень прав текущего юзера
+  ): Promise<CheckNoteAccessResult> {
     const [row] = await this.db
       .select({
-        noteOwnerId: notesTable.userId, // Кто создал саму заметку
-        folderId: notesTable.folderId, // В какой папке лежит
-        folderOwnerId: foldersTable.userId, // Кто владеет папкой-родителем
-        guestAccessLevel: folderSharesTable.accessLevel, // Права текущего юзера на эту папку
+        noteOwnerId: notesTable.userId,
+        folderId: notesTable.folderId,
+        folderOwnerId: foldersTable.userId,
+        guestAccessLevel: folderSharesTable.accessLevel,
       })
       .from(notesTable)
-      // Привязываем папку, чтобы узнать её создателя
       .leftJoin(foldersTable, eq(notesTable.folderId, foldersTable.id))
-      // Привязываем таблицу доступов по составному условию (папка + текущий юзер)
       .leftJoin(
         folderSharesTable,
         and(
@@ -62,49 +62,38 @@ export class NoteService implements INoteService {
           eq(folderSharesTable.userId, userId)
         )
       )
-      .where(
-        and(
-          eq(notesTable.id, noteId),
-          eq(notesTable.isDeleted, false) // Защита: игнорируем удаленные заметки
-        )
-      )
+      .where(and(eq(notesTable.id, noteId), eq(notesTable.isDeleted, false)))
       .limit(1);
 
-    // 1. Заметка не найдена в системе
+    // 1. Заметки нет (или удалена)
     if (!row) {
-      return { hasAccess: false, accessLevel: null, isOwner: false };
+      return { found: false };
     }
 
-    // 2. Кейс: Заметка находится в Inbox (личная корзина, folderId === null)
-    if (!row.folderId) {
+    // 2. Inbox: folderId === null → права только у создателя заметки
+    if (row.folderId === null) {
       const isOwner = row.noteOwnerId === userId;
-      return {
-        hasAccess: isOwner,
-        accessLevel: isOwner ? 'owner' : null,
-        isOwner,
-      };
+      return isOwner
+        ? { found: true, hasAccess: true, accessLevel: 'owner' }
+        : { found: true, hasAccess: false };
     }
 
-    // 3. Кейс: Текущий пользователь — создатель/владелец папки
+    // 3. Владелец папки → owner
     if (row.folderOwnerId === userId) {
-      return {
-        hasAccess: true,
-        accessLevel: 'owner',
-        isOwner: true,
-      };
+      return { found: true, hasAccess: true, accessLevel: 'owner' };
     }
 
-    // 4. Кейс: Папка расшарена текущему пользователю (он гость с 'read' или 'write')
+    // 4. Гость с шарой папки → read | write
     if (row.guestAccessLevel) {
       return {
+        found: true,
         hasAccess: true,
-        accessLevel: row.guestAccessLevel as 'read' | 'write' | 'owner',
-        isOwner: false,
+        accessLevel: row.guestAccessLevel as 'read' | 'write',
       };
     }
 
-    // 5. Тотальный отказ: папка существует, но юзер к ней не имеет отношения
-    return { hasAccess: false, accessLevel: null, isOwner: false };
+    // 5. Папка есть, но юзер к ней не относится
+    return { found: true, hasAccess: false };
   }
 
   // 1. ПОЛУЧИТЬ КУРСОРНУЮ ПАГИНАЦИЮ ЗАМЕТОК (Highload O(1) с тегами)
@@ -484,29 +473,13 @@ export class NoteService implements INoteService {
    * Атомарное обновление заметки на основе семантики Last-Write-Wins (LWW).
    * Права доступа гарантированы вызывающим слоем API.
    */
-  async updateNote(
-    payload: UpdateNotePayload,
-    userId: string
-  ): Promise<{
-    success: boolean;
-    isRejected: boolean;
-    note: NoteWithTags | null;
-  }> {
+  async updateNote(payload: any, userId: string): Promise<any> {
     const { id, clientUpdatedAt, title, content } = payload;
 
-    const noteId = id;
-    // Делегируем проверку специализированному сервису блокировок
-    const isLocked = await this.noteLockService.isLockedByOthers(
-      noteId,
-      userId
-    );
-
-    if (isLocked) {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message:
-          'Заметка заблокирована другим пользователем. Изменения отклонены.',
-      });
+    // 1. Лок — только если держит кто-то другой
+    const lock = await this.noteLockService.isLockedByOthers(id, userId);
+    if (lock) {
+      return { status: 'locked' };
     }
 
     const updateFields: Record<string, any> = {
@@ -540,8 +513,8 @@ export class NoteService implements INoteService {
       },
     });
 
-    if (!noteData) {
-      return { success: false, isRejected: false, note: null };
+    if (!noteData || noteData.isDeleted) {
+      return { status: 'gone' };
     }
 
     // Схлопываем теги
@@ -564,9 +537,98 @@ export class NoteService implements INoteService {
     // ОПРЕДЕЛЯЕМ ИСТИННЫЙ РЕЗУЛЬТАТ LWW
     // Если апдейт вернул пустой массив, но в базе заметка есть — значит, пришел устаревший пакет!
     if (!updatedNote) {
-      return { success: false, isRejected: true, note: mappedNote };
+      return { status: 'stale', note: mappedNote };
     }
 
-    return { success: true, isRejected: false, note: mappedNote };
+    return { status: 'updated', note: mappedNote };
+  }
+
+  /**
+   * Общий write-путь для updateMeta и autoSaveContent.
+   * Не собирает DTO, не тянет теги — только применяет изменения и различает исход.
+   */
+  private async applyNoteWrite(
+    noteId: string,
+    actorUserId: string,
+    clientUpdatedAt: string,
+    fields: Partial<Pick<typeof notesTable.$inferInsert, 'title' | 'content'>>
+  ): Promise<NoteWriteResult> {
+    // 1. Лок
+    const lock = await this.noteLockService.isLockedByOthers(
+      noteId,
+      actorUserId
+    );
+    if (lock) {
+      return {
+        status: 'locked',
+        lockedBy: actorUserId, //lock.userId,
+        lockedByName: null, //lock.displayName ?? null,
+      };
+    }
+
+    // 2. Атомарный UPDATE с LWW
+    const [updated] = await this.db
+      .update(notesTable)
+      .set({
+        ...fields,
+        clientUpdatedAt,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(notesTable.id, noteId),
+          lt(notesTable.clientUpdatedAt, clientUpdatedAt)
+        )
+      )
+      .returning({ id: notesTable.id });
+
+    if (updated) {
+      // best-effort: не влияет на результат write, не часть транзакции
+      // void this.noteLockService
+      //   .renew(noteId, actorUserId, LOCK_TTL_SECONDS)
+      //   .catch((err) => {
+      //     this.logger.warn({ err, noteId, actorUserId }, 'lock renew failed after write');
+      //   });
+
+      // 6. Снаружи транзакции делаем Fire-and-Forget пуш в SSE-шину событий
+      globalEventEmitter.emit(SYSTEM_EVENTS.NOTE_MUTATED, {
+        type: 'CREATED',
+        noteId: noteId,
+      });
+      return { status: 'applied' };
+    }
+
+    // 3. UPDATE не прошёл — stale или gone
+    const exists = await this.db.query.notesTable.findFirst({
+      where: and(eq(notesTable.id, noteId), eq(notesTable.isDeleted, false)),
+      columns: { id: true },
+    });
+
+    return exists ? { status: 'stale' } : { status: 'gone' };
+  }
+
+  // Публичные методы — тонкие обёртки
+  async updateMeta(
+    payload: UpdateNoteMetaPayload,
+    actorUserId: string
+  ): Promise<NoteWriteResult> {
+    return this.applyNoteWrite(
+      payload.noteId,
+      actorUserId,
+      payload.clientUpdatedAt,
+      { title: payload.title.trim() }
+    );
+  }
+
+  async autoSaveContent(
+    payload: AutoSaveNotePayload,
+    actorUserId: string
+  ): Promise<NoteWriteResult> {
+    return this.applyNoteWrite(
+      payload.noteId,
+      actorUserId,
+      payload.clientUpdatedAt,
+      { content: payload.content }
+    );
   }
 }

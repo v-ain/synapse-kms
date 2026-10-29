@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNote, useArchiveNote, useAttachTag } from '@/hooks';
-import { NoteEditor } from './NoteEditor';
 import { InlineTitleEditor } from './InlineTitleEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

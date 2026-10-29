@@ -60,7 +60,7 @@ export function useSystemSubscription() {
         // СЦЕНАРИЙ 2: Кто-то создал или изменил заметку в системе
         case 'NOTE_MUTATED': {
           // Если мутацию сделал я сам — игнорируем, наш клиент уже обновился локально
-          if (payload.userId === currentUserId) return;
+          // if (payload.userId === currentUserId) return;
 
           console.log(
             `[SSE] Системное событие: ${payload.type} от пользователя ${payload.userId}`

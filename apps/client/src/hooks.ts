@@ -177,19 +177,18 @@ export function useAttachTag() {
 }
 
 // 3. ХУК ОБНОВЛЕНИЯ ЗАМЕТКИ (LWW)
-export function useUpdateNote() {
+export function useUpdateNoteMeta() {
   const utils = trpc.useUtils();
 
-  const mutation = trpc.notes.update.useMutation({
+  const mutation = trpc.notes.updateMeta.useMutation({
     // Включаем безопасные LWW-ретраи для отказоустойчивости при моргании сети
     retry: 3,
     retryDelay: (attempt) => Math.min(attempt * 1000, 5000),
 
     onSuccess: (updatedNote) => {
       // Точечно синхронизируем кэш конкретной заметки
-      utils.notes.getById.setData({ id: updatedNote.id }, updatedNote);
       // Мягко уведомляем списки без жесткого рефетча посреди ввода
-      utils.notes.getNotes.invalidate();
+      // utils.notes.getNotes.invalidate();
     },
     onError: (error) => {
       console.error('Ошибка сохранения заметки:', error.message);
@@ -198,7 +197,7 @@ export function useUpdateNote() {
 
   // Добавляем поддержку стандартных TanStack опций вызова (onSuccess, onError)
   const updateNote = (
-    payload: { id: string; title?: string; content?: string },
+    payload: { noteId: string; title: string },
     options?: { onSuccess?: (data: any) => void; onError?: (err: any) => void }
   ) => {
     return mutation.mutate(
@@ -213,6 +212,38 @@ export function useUpdateNote() {
   return { ...mutation, updateNote };
 }
 
+// 3. ХУК ОБНОВЛЕНИЯ ЗАМЕТКИ (LWW)
+export function useNoteAutoSave() {
+  const utils = trpc.useUtils();
+
+  const mutation = trpc.notes.autoSaveContent.useMutation({
+    onSuccess: (updatedNote) => {
+      // Мягко уведомляем списки без жесткого рефетча посреди ввода
+      // utils.notes.getNotes.invalidate();
+    },
+    onError: (error) => {
+      window.alert('Ошибка сохранения заметки:');
+      console.error('Ошибка сохранения заметки:', error.message);
+    },
+  });
+
+  // Добавляем поддержку стандартных TanStack опций вызова (onSuccess, onError)
+  const updateNote = (
+    payload: { id: string; content?: string },
+    options?: { onSuccess?: (data: any) => void; onError?: (err: any) => void }
+  ) => {
+    return mutation.mutate(
+      {
+        noteId: payload.id,
+        content: payload.content,
+        clientUpdatedAt: new Date().toISOString(),
+      },
+      options
+    );
+  };
+
+  return { ...mutation, updateNote };
+}
 export function useTags() {
   return trpc.tags.list.useQuery();
 }

@@ -2,6 +2,8 @@ import { scryptSync, randomBytes, timingSafeEqual } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { eq } from 'drizzle-orm';
 import {
+  JwtPayload,
+  JwtPayloadSchema,
   userCredentialsTable,
   userProfilesTable,
   userQuotasTable,
@@ -51,12 +53,12 @@ export class AuthService {
   }
 
   // 4. Валидация JWT токена
-  verifyToken(token: string): { userId: string; userRole: string } | null {
+  verifyToken(token: string): JwtPayload | null {
     try {
-      return jwt.verify(token, JWT_SECRET) as {
-        userId: string;
-        userRole: string;
-      };
+      const raw = jwt.verify(token, JWT_SECRET);
+      if (typeof raw === 'string') return null;
+      const parsed = JwtPayloadSchema.safeParse(raw);
+      return parsed.success ? parsed.data : null;
     } catch {
       return null;
     }

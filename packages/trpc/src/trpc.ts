@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import z, { ZodError } from 'zod';
 import { type Context } from './context.js';
+import { NoteAccessInputSchema } from '@synapse-kms/shared';
 
 // Инициализируем tRPC с форматтером ошибок
 const t = initTRPC.context<Context>().create({
@@ -28,14 +29,15 @@ export const publicProcedure = t.procedure;
 
 // 1. Базовый мидлвар авторизации (проверяет наличие userId)
 const isAuthed = t.middleware(({ ctx, next }) => {
-  if (!ctx.userId) {
+  if (!ctx.user) {
     throw new TRPCError({
       code: 'UNAUTHORIZED',
       message: 'Для выполнения этого действия необходима авторизация',
     });
   }
-  // Передаем userId как гарантированно не-null в следующую цепочку
-  return next({ ctx: { userId: ctx.userId } });
+
+  // Передаем user до UserContext
+  return next({ ctx: { user: ctx.user } });
 });
 
 export const protectedProcedure = t.procedure.use(isAuthed);
@@ -44,18 +46,17 @@ export const protectedProcedure = t.procedure.use(isAuthed);
 export const noteAccessProcedure = protectedProcedure
   .input(z.object({ id: z.string().uuid() }))
   .use(async ({ ctx, next, input }) => {
-    // МАГИЯ: Один плоский SQL-запрос вместо каскада проверок
-    const access = await ctx.noteService.checkNoteAccess(input.id, ctx.userId);
+    const access = await ctx.noteService.checkNoteAccess(input.id, ctx.user.id);
 
-    // 1. Если заметки нет в базе (или она удалена)
-    if (!access.hasAccess && access.accessLevel === null) {
+    // 1. Заметки нет (или удалена) — юнион говорит об этом явно
+    if (!access.found) {
       throw new TRPCError({
         code: 'NOT_FOUND',
         message: 'Заметка не найдена в системе',
       });
     }
 
-    // 2. Если запись есть, но у пользователя нет к ней никакого отношения
+    // 2. Заметка есть, но доступа нет
     if (!access.hasAccess) {
       throw new TRPCError({
         code: 'FORBIDDEN',
@@ -63,13 +64,11 @@ export const noteAccessProcedure = protectedProcedure
       });
     }
 
-    // 3. Пропускаем запрос дальше, обогащая tRPC-контекст чистыми, однородными типами доступов
+    // 3. Доступ есть — прокидываем уровень дальше.
+    // После проверок выше TypeScript сам сузил тип до { accessLevel: 'read' | 'write' | 'owner' }.
     return next({
       ctx: {
-        // Вычисляем роль для обратной совместимости, если она нужна UI-мидлварам
-        folderRole: access.isOwner ? ('owner' as const) : ('guest' as const),
-        // Наш главный однородный уровень доступа: 'read' | 'write' | 'owner'
-        folderAccessLevel: access.accessLevel!,
+        noteAccessLevel: access.accessLevel,
       },
     });
   });
@@ -88,7 +87,7 @@ export const folderScopedProcedure = protectedProcedure
 
     const access = await ctx.folderService.checkFolderAccess(
       folderId,
-      ctx.userId
+      ctx.user.id
     );
 
     if (!access.hasAccess) {
@@ -101,7 +100,6 @@ export const folderScopedProcedure = protectedProcedure
     return next({
       ctx: {
         targetFolderId: folderId,
-        folderRole: access.role!, // 'owner' | 'guest'
         // 🆕 Теперь здесь может прилететь 'read' | 'write' | 'owner'
         folderAccessLevel: access.accessLevel!,
       },
@@ -125,7 +123,6 @@ export const rootOrFolderProcedure = protectedProcedure
       return next({
         ctx: {
           targetFolderId: null,
-          folderRole: 'owner' as const,
           // 🆕 Для Inbox владелец теперь полноценно имеет уровень 'owner'
           folderAccessLevel: 'owner' as const,
         },
@@ -135,7 +132,7 @@ export const rootOrFolderProcedure = protectedProcedure
     // 📁 Если folderId передан как UUID — жестко проверяем права в базе
     const access = await ctx.folderService.checkFolderAccess(
       folderId,
-      ctx.userId
+      ctx.user.id
     );
 
     if (!access.hasAccess) {
@@ -148,7 +145,6 @@ export const rootOrFolderProcedure = protectedProcedure
     return next({
       ctx: {
         targetFolderId: folderId,
-        folderRole: access.role as 'owner' | 'guest',
         // 🆕 Передаем сквозной уровень доступа из базы
         folderAccessLevel: access.accessLevel as 'read' | 'write' | 'owner',
       },
@@ -179,7 +175,7 @@ export const targetFolderAccessProcedure = protectedProcedure
     // Проверяем права на целевую папку в базе
     const access = await ctx.folderService.checkFolderAccess(
       targetFolderId,
-      ctx.userId
+      ctx.user.id
     );
 
     if (!access.hasAccess) {
@@ -193,6 +189,40 @@ export const targetFolderAccessProcedure = protectedProcedure
       ctx: {
         // Прокидываем уровень доступа к целевой папке в контекст
         targetFolderAccessLevel: access.accessLevel!,
+      },
+    });
+  });
+
+export const cachedNoteAccessProcedure = protectedProcedure
+  .input(NoteAccessInputSchema)
+  .use(async ({ ctx, input, next }) => {
+    // TODO: Redis GET here (note:access:{userId}:{noteId})
+
+    const access = await ctx.noteService.checkNoteAccess(
+      input.noteId,
+      ctx.user.id
+    );
+
+    if (!access.found) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Заметка не найдена в системе',
+      });
+    }
+
+    if (!access.hasAccess) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'У вас нет доступа к этой заметке или родительской папке',
+      });
+    }
+
+    // TODO: Redis SETEX here (TTL 300s), только для hasAccess: true
+
+    return next({
+      ctx: {
+        ...ctx,
+        noteAccessLevel: access.accessLevel,
       },
     });
   });

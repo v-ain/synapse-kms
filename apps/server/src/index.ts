@@ -13,6 +13,7 @@ import { redis } from './infrastructure/redis.js';
 import { NoteLockService } from './services/note-lock.service.js';
 import { globalEventEmitter } from './infrastructure/events.js';
 import { UserRepository } from './domain/user/repository/UserRepository.js';
+import { UserContext } from '@synapse-kms/shared';
 
 const fastify = Fastify({ logger: true });
 
@@ -53,14 +54,13 @@ await fastify.register(fastifyTRPCPlugin, {
     }) => {
       // Чистый, нативный Fastify! Плагин @fastify/cookie парсит куки строго сюда
       const token = req.cookies.token;
-      let userId: string | null = null;
-      let userRole: string | null = null;
+
+      let user: UserContext | null = null;
 
       if (token) {
-        const payload = authService.verifyToken(token);
+        const payload = authService.verifyToken(token); // JwtPayload | null, уже валидирован
         if (payload) {
-          userId = payload.userId;
-          userRole = payload.userRole;
+          user = { id: payload.userId, role: payload.userRole };
         }
       }
 
@@ -74,8 +74,7 @@ await fastify.register(fastifyTRPCPlugin, {
         tagService,
         userService,
         eventEmitter: globalEventEmitter,
-        userId,
-        userRole,
+        user,
         // 🚀 Нативное замыкание на метод setCookie от Fastify!
         setAuthCookie: (newToken: string) => {
           if (newToken === '') {

@@ -9,7 +9,7 @@ export const tagsRouter = router({
     .mutation(async ({ input, ctx }) => {
       // 🛡️ ОХРАНА: Проверяем, принадлежит ли заметка текущему пользователю,
       // прежде чем разрешить вешать на неё теги!
-      const note = await ctx.noteService.getNoteById(input.noteId, ctx.userId);
+      const note = await ctx.noteService.getNoteById(input.noteId, ctx.user.id);
       if (!note) {
         throw new TRPCError({
           code: 'FORBIDDEN',
@@ -17,11 +17,11 @@ export const tagsRouter = router({
         });
       }
 
-      return await ctx.tagService.attachTag(input, ctx.userId);
+      return await ctx.tagService.attachTag(input, ctx.user.id);
     }),
 
   // Эндпоинт получения всех тегов пользователя для Сайдбара
   list: protectedProcedure.query(async ({ ctx }) => {
-    return await ctx.tagService.getUserTags(ctx.userId);
+    return await ctx.tagService.getUserTags(ctx.user.id);
   }),
 });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useUpdateNote } from '@/hooks'; // 🔒 Импортируем наш хук блокировок
+import { useNoteAutoSave } from '@/hooks';
 import { Textarea } from '@/components/ui/textarea';
 import {
   CloudCheck,
@@ -38,7 +38,7 @@ export const NoteEditor_v2 = ({ note }: EditorProps) => {
     () => (note.content || '').split(/\s+/).filter(Boolean).length
   );
 
-  const { updateNote, isPending } = useUpdateNote();
+  const { updateNote, isPending } = useNoteAutoSave();
 
   // Вычисляем статус: если заблокировано кем-то — принудительно 'locked'
   const status: SyncStatus = isReadOnly
