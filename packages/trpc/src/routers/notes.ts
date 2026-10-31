@@ -116,7 +116,11 @@ export const notesRouter = router({
         });
       }
 
-      const result = await ctx.noteService.autoSaveContent(input, ctx.user.id);
+      const result = await ctx.autoSaveContentUseCase.execute(
+        input,
+        ctx.user.id,
+        ctx.noteAccessLevel
+      );
       return handleWriteResult(result); // общий хелпер
     }),
 
@@ -130,7 +134,19 @@ export const notesRouter = router({
         });
       }
 
+      const isLocked = await ctx.noteLockService.isLockedByOthers(
+        input.noteId,
+        ctx.user.id
+      );
+      if (isLocked) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Заметка заблокирована другим пользователем',
+        });
+      }
+
       const result = await ctx.noteService.updateMeta(input, ctx.user.id);
+      ctx.noteEventPublisher.noteCreated(input.noteId, null, ctx.user.id);
       return handleWriteResult(result);
     }),
 });

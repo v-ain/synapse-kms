@@ -5,7 +5,6 @@ import {
   notesTagsTable,
   tagsTable,
   folderSharesTable,
-  SYSTEM_EVENTS,
   userProfilesTable,
 } from '@synapse-kms/shared';
 
@@ -27,14 +26,15 @@ import type {
 import { INoteLockService, INoteService } from '@synapse-kms/trpc';
 import { DrizzleDB } from 'src/db.js';
 import { TRPCError } from '@trpc/server';
-import { globalEventEmitter } from 'src/infrastructure/events.js';
+import type { NoteEventPublisher } from 'src/infrastructure/NoteEventPublisher.js';
 
 export class NoteService implements INoteService {
   // Внедряем типизированный инстанс 'db' вместо сырого 'sql'
   constructor(
     private db: DrizzleDB,
     private readonly noteLockService: INoteLockService,
-    private userRepository: any
+    private userRepository: any,
+    private noteEventPublisher: NoteEventPublisher
   ) {}
 
   /**
@@ -377,12 +377,8 @@ export class NoteService implements INoteService {
     });
 
     // 6. Снаружи транзакции делаем Fire-and-Forget пуш в SSE-шину событий
-    globalEventEmitter.emit(SYSTEM_EVENTS.NOTE_MUTATED, {
-      type: 'CREATED',
-      noteId: newNote.id,
-      folderId: newNote.folderId,
-      userId: userId, // Кто создал, чтобы сработал фронтенд-гард "свой-чужой"
-    });
+    // userId, // Кто создал, чтобы сработал фронтенд-гард "свой-чужой"
+    this.noteEventPublisher.noteCreated(newNote.id, newNote.folderId, userId);
 
     // 7. СТРУКТУРИРОВАННЫЙ ОТВЕТ: Возвращаем объект, обогащая его виртуальными полями
     return {
@@ -553,19 +549,6 @@ export class NoteService implements INoteService {
     clientUpdatedAt: string,
     fields: Partial<Pick<typeof notesTable.$inferInsert, 'title' | 'content'>>
   ): Promise<NoteWriteResult> {
-    // 1. Лок
-    const lock = await this.noteLockService.isLockedByOthers(
-      noteId,
-      actorUserId
-    );
-    if (lock) {
-      return {
-        status: 'locked',
-        lockedBy: actorUserId, //lock.userId,
-        lockedByName: null, //lock.displayName ?? null,
-      };
-    }
-
     // 2. Атомарный UPDATE с LWW
     const [updated] = await this.db
       .update(notesTable)
@@ -590,11 +573,6 @@ export class NoteService implements INoteService {
       //     this.logger.warn({ err, noteId, actorUserId }, 'lock renew failed after write');
       //   });
 
-      // 6. Снаружи транзакции делаем Fire-and-Forget пуш в SSE-шину событий
-      globalEventEmitter.emit(SYSTEM_EVENTS.NOTE_MUTATED, {
-        type: 'CREATED',
-        noteId: noteId,
-      });
       return { status: 'applied' };
     }
 

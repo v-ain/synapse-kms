@@ -171,6 +171,14 @@ export interface INoteLockService {
   getLocksForNotes(noteIds: string[]): Promise<Record<string, NoteLockInfo>>;
 }
 
+export interface INoteEventPublisher {
+  noteCreated(
+    noteId: string,
+    folderId: string | null,
+    actorUserId: string
+  ): void;
+}
+
 export interface ContextOptions {
   noteService: INoteService;
   folderService: IFolderService;
@@ -179,21 +187,24 @@ export interface ContextOptions {
   userService: IUserService;
   noteLockService: INoteLockService;
   eventEmitter: EventEmitter;
+  noteEventPublisher: INoteEventPublisher;
+  autoSaveContentUseCase: any;
   user: UserContext | null;
   setAuthCookie?: (token: string) => void;
 }
 
 export function createContext(opts: ContextOptions) {
   return {
-    noteService: opts.noteService,
-    folderService: opts.folderService,
-    authService: opts.authService,
-    tagService: opts.tagService,
-    userService: opts.userService,
-    noteLockService: opts.noteLockService,
-    eventEmitter: opts.eventEmitter,
-    user: opts.user,
-    setAuthCookie: opts.setAuthCookie,
+    ...opts,
+    // noteService: opts.noteService,
+    // folderService: opts.folderService,
+    // authService: opts.authService,
+    // tagService: opts.tagService,
+    // userService: opts.userService,
+    // noteLockService: opts.noteLockService,
+    // eventEmitter: opts.eventEmitter,
+    // user: opts.user,
+    // setAuthCookie: opts.setAuthCookie,
   };
 }
 

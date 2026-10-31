@@ -14,12 +14,6 @@ export type NoteWithTags = Note & {
   tags: string[]; // Переопределяем как обязательное поле
 };
 
-// Универсальные типы системных событий
-export const SYSTEM_EVENTS = {
-  LOCK_UPDATED: 'LOCK_UPDATED', // Вызывается при acquire, renew и release
-  NOTE_MUTATED: 'NOTE_MUTATED', // Создание, удаление, обновление содержимого
-};
-
 // Базовая структура из БД
 export type Folder = InferSelectModel<typeof foldersTable>;
 

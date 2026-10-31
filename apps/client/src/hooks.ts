@@ -1,3 +1,4 @@
+import { NOTES_PAGE_SIZE } from '@synapse-kms/shared';
 import { useUIStore } from './store';
 import { trpc } from './utils/trpc';
 
@@ -22,7 +23,7 @@ export function useNotes() {
       folderId,
       tagName,
       search: searchQuery,
-      limit: '20', // tRPC ждет string по схеме бэкенда
+      limit: NOTES_PAGE_SIZE, // tRPC ждет string по схеме бэкенда
     },
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -37,11 +38,7 @@ export function useNotes() {
 export function useNote(id: string) {
   return trpc.notes.getById.useQuery(
     { id }, // Чистая передача без id! или хаков типизации
-    {
-      // Заметка обычно открывается на длительное редактирование,
-      // кэш можно спокойно держать подольше (микросекундная эффективность)
-      staleTime: 1000 * 60 * 5,
-    }
+    { refetchOnMount: 'always' }
   );
 }
 

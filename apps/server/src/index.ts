@@ -11,9 +11,11 @@ import { TagService } from './services/tag.service.js';
 import { UserService } from './services/user.service.js';
 import { redis } from './infrastructure/redis.js';
 import { NoteLockService } from './services/note-lock.service.js';
-import { globalEventEmitter } from './infrastructure/events.js';
 import { UserRepository } from './domain/user/repository/UserRepository.js';
 import { UserContext } from '@synapse-kms/shared';
+import { AutoSaveContentUseCase } from './application/note/AutoSaveContentUseCase.js';
+import { NoteEventPublisher } from './infrastructure/NoteEventPublisher.js';
+import { globalEventEmitter } from './infrastructure/TypedEventEmitter.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -21,14 +23,27 @@ await fastify.register(fastifyCookie, {
   secret: process.env.COOKIE_SECRET || 'my-cookie-secret-key-change-me', // для подписи кук при необходимости
 });
 
+const noteEventPublisher = new NoteEventPublisher(globalEventEmitter, 1000);
+
 const userService = new UserService(db);
 const authService = new AuthService(db, userService);
 const folderService = new FolderService(db, userService);
 const tagService = new TagService(db);
 
 const userRepository = new UserRepository(db);
-const noteLockService = new NoteLockService(redis, db);
-const noteService = new NoteService(db, noteLockService, userRepository);
+const noteLockService = new NoteLockService(redis, db, noteEventPublisher);
+const noteService = new NoteService(
+  db,
+  noteLockService,
+  userRepository,
+  noteEventPublisher
+);
+
+const autoSaveContentUseCase = new AutoSaveContentUseCase(
+  noteService,
+  noteLockService,
+  noteEventPublisher
+);
 
 // Настройки куки: HttpOnly, защита от CSRF через SameSite=Strict, кука живет 7 дней [health]
 const COOKIE_OPTIONS = {
@@ -73,7 +88,6 @@ await fastify.register(fastifyTRPCPlugin, {
         authService,
         tagService,
         userService,
-        eventEmitter: globalEventEmitter,
         user,
         // 🚀 Нативное замыкание на метод setCookie от Fastify!
         setAuthCookie: (newToken: string) => {
@@ -87,6 +101,9 @@ await fastify.register(fastifyTRPCPlugin, {
             res.setCookie('token', newToken, { ...COOKIE_OPTIONS, path: '/' });
           }
         },
+        eventEmitter: globalEventEmitter, // для SSE-подписчиков
+        noteEventPublisher, // для use cases / сервисов
+        autoSaveContentUseCase,
       });
     },
   },
