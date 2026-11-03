@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import z, { ZodError } from 'zod';
 import { type Context } from './context.js';
+import { NoteAccessInputSchema } from '@synapse-kms/shared';
 
 // Инициализируем tRPC с форматтером ошибок
 const t = initTRPC.context<Context>().create({
@@ -28,62 +29,46 @@ export const publicProcedure = t.procedure;
 
 // 1. Базовый мидлвар авторизации (проверяет наличие userId)
 const isAuthed = t.middleware(({ ctx, next }) => {
-  if (!ctx.userId) {
+  if (!ctx.user) {
     throw new TRPCError({
       code: 'UNAUTHORIZED',
       message: 'Для выполнения этого действия необходима авторизация',
     });
   }
-  // Передаем userId как гарантированно не-null в следующую цепочку
-  return next({ ctx: { userId: ctx.userId } });
+
+  // Передаем user до UserContext
+  return next({ ctx: { user: ctx.user } });
 });
 
 export const protectedProcedure = t.procedure.use(isAuthed);
 
-// ПРОЦЕДУРА ПРОВЕРКИ ДОСТУПА К КОНКРЕТНОЙ ЗАМЕТКЕ (tRPC v11)
+// НОВЫЙ ОДНОРОДНЫЙ ШЛЮЗ БЕЗОПАСНОСТИ ЗАМЕТОК
 export const noteAccessProcedure = protectedProcedure
   .input(z.object({ id: z.string().uuid() }))
   .use(async ({ ctx, next, input }) => {
-    // Вызываем метод через уже существующий в контексте noteService!
-    const noteMeta = await ctx.noteService.getNoteMeta(input.id);
+    const access = await ctx.noteService.checkNoteAccess(input.id, ctx.user.id);
 
-    if (!noteMeta) {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'Заметка не найдена' });
-    }
-
-    // Если это Inbox — читать может только автор
-    if (!noteMeta.folderId) {
-      if (noteMeta.userId !== ctx.userId) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'У вас нет доступа к этой личной заметке',
-        });
-      }
-      return next({
-        ctx: {
-          folderRole: 'owner' as const,
-          folderAccessLevel: 'write' as const,
-        },
+    // 1. Заметки нет (или удалена) — юнион говорит об этом явно
+    if (!access.found) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Заметка не найдена в системе',
       });
     }
 
-    // Если это папка — делегируем безопасность папкам
-    const access = await ctx.folderService.checkFolderAccess(
-      noteMeta.folderId,
-      ctx.userId
-    );
-
+    // 2. Заметка есть, но доступа нет
     if (!access.hasAccess) {
       throw new TRPCError({
         code: 'FORBIDDEN',
-        message: 'У вас нет доступа к папке, содержащей эту заметку',
+        message: 'У вас нет доступа к этой заметке или родительской папке',
       });
     }
 
+    // 3. Доступ есть — прокидываем уровень дальше.
+    // После проверок выше TypeScript сам сузил тип до { accessLevel: 'read' | 'write' | 'owner' }.
     return next({
       ctx: {
-        folderRole: access.role!,
-        folderAccessLevel: access.accessLevel!,
+        noteAccessLevel: access.accessLevel,
       },
     });
   });
@@ -94,16 +79,15 @@ export const noteAccessProcedure = protectedProcedure
 export const folderScopedProcedure = protectedProcedure
   .input(
     z.object({
-      id: z.string().uuid(), // Здесь папка — главный объект, строго UUID
+      id: z.string().uuid(),
     })
   )
   .use(async ({ ctx, next, input }) => {
-    // Никаких `??`, берем строго `id` папки
     const folderId = input.id;
 
     const access = await ctx.folderService.checkFolderAccess(
       folderId,
-      ctx.userId
+      ctx.user.id
     );
 
     if (!access.hasAccess) {
@@ -116,8 +100,8 @@ export const folderScopedProcedure = protectedProcedure
     return next({
       ctx: {
         targetFolderId: folderId,
-        folderRole: access.role!, // 'owner' | 'guest'
-        folderAccessLevel: access.accessLevel!, // 'read' | 'write'
+        // 🆕 Теперь здесь может прилететь 'read' | 'write' | 'owner'
+        folderAccessLevel: access.accessLevel!,
       },
     });
   });
@@ -128,21 +112,19 @@ export const folderScopedProcedure = protectedProcedure
 export const rootOrFolderProcedure = protectedProcedure
   .input(
     z.object({
-      folderId: z.string().uuid().nullable().optional(), // Может быть UUID, null или undefined
+      folderId: z.string().uuid().nullable().optional(),
     })
   )
   .use(async ({ ctx, next, input }) => {
     const { folderId } = input;
 
     // 📥 Если folderId явно равен null или не передан — это строго Inbox!
-    // Никакой хакер не сможет подменить контекст, потому что мы проверяем именно то поле,
-    // которое отвечает за связь (внешний ключ).
     if (folderId === null || folderId === undefined) {
       return next({
         ctx: {
           targetFolderId: null,
-          folderRole: 'owner' as const,
-          folderAccessLevel: 'write' as const,
+          // 🆕 Для Inbox владелец теперь полноценно имеет уровень 'owner'
+          folderAccessLevel: 'owner' as const,
         },
       });
     }
@@ -150,7 +132,7 @@ export const rootOrFolderProcedure = protectedProcedure
     // 📁 Если folderId передан как UUID — жестко проверяем права в базе
     const access = await ctx.folderService.checkFolderAccess(
       folderId,
-      ctx.userId
+      ctx.user.id
     );
 
     if (!access.hasAccess) {
@@ -163,32 +145,84 @@ export const rootOrFolderProcedure = protectedProcedure
     return next({
       ctx: {
         targetFolderId: folderId,
-        folderRole: access.role!,
-        folderAccessLevel: access.accessLevel!,
+        // 🆕 Передаем сквозной уровень доступа из базы
+        folderAccessLevel: access.accessLevel as 'read' | 'write' | 'owner',
       },
     });
   });
 
-// 3. Создаем middleware для проверки роли АДМИНИСТРАТОРА
-const isAdmin = t.middleware(({ ctx, next }) => {
-  // ⚠️ ВАЖНО: Предполагаем, что роль лежит в ctx.userRole или вы достаете её из вашей сессии/БД в контексте.
-  // Замените `ctx.userRole` на то, как это поле называется у вас в context.ts
-  if (ctx.userRole !== 'admin') {
-    throw new TRPCError({
-      code: 'FORBIDDEN', // Код 403 (Запрещено), так как юзер авторизован, но у него нет прав
-      message: 'Доступ ограничен. Требуются права администратора',
+// ==========================================
+// 3. СПЕЦИАЛИЗИРОВАННЫЙ ШЛЮЗ ДЛЯ ЦЕЛЕВОЙ ПАПКИ
+// ==========================================
+export const targetFolderAccessProcedure = protectedProcedure
+  .input(
+    z.object({
+      targetFolderId: z.string().uuid().nullable().optional(), // Парсим правильное имя!
+    })
+  )
+  .use(async ({ ctx, next, input }) => {
+    const { targetFolderId } = input;
+
+    // Если перемещаем в Inbox (null/undefined) — права всегда есть (owner личной корзины)
+    if (targetFolderId === null || targetFolderId === undefined) {
+      return next({
+        ctx: {
+          targetFolderAccessLevel: 'owner' as const,
+        },
+      });
+    }
+
+    // Проверяем права на целевую папку в базе
+    const access = await ctx.folderService.checkFolderAccess(
+      targetFolderId,
+      ctx.user.id
+    );
+
+    if (!access.hasAccess) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'У вас нет доступа к целевой папке',
+      });
+    }
+
+    return next({
+      ctx: {
+        // Прокидываем уровень доступа к целевой папке в контекст
+        targetFolderAccessLevel: access.accessLevel!,
+      },
     });
-  }
-
-  return next({
-    ctx: {
-      userId: ctx.userId,
-      userRole: ctx.userRole, // Передаем роль дальше по контексту
-    },
   });
-});
 
-// 🔒 4. Экспортируем готовую защищенную процедуру для АДМИНКИ
-// Магия tRPC: эта процедура СНАЧАЛА запустит проверку авторизации (isAuthed),
-// и только если она прошла успешна — запустит проверку роли (isAdmin)!
-export const adminProcedure = t.procedure.use(isAuthed).use(isAdmin);
+export const cachedNoteAccessProcedure = protectedProcedure
+  .input(NoteAccessInputSchema)
+  .use(async ({ ctx, input, next }) => {
+    // TODO: Redis GET here (note:access:{userId}:{noteId})
+
+    const access = await ctx.noteService.checkNoteAccess(
+      input.noteId,
+      ctx.user.id
+    );
+
+    if (!access.found) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Заметка не найдена в системе',
+      });
+    }
+
+    if (!access.hasAccess) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'У вас нет доступа к этой заметке или родительской папке',
+      });
+    }
+
+    // TODO: Redis SETEX here (TTL 300s), только для hasAccess: true
+
+    return next({
+      ctx: {
+        ...ctx,
+        noteAccessLevel: access.accessLevel,
+      },
+    });
+  });

@@ -1,60 +1,70 @@
 import type { EventEmitter } from 'events';
 import type {
   AttachTagPayload,
+  AutoSaveNotePayload,
   BulkMovePayload,
+  CheckNoteAccessResult,
   CreateNotePayload,
   DeleteFolderPayload,
   Folder,
   FolderAccessResult,
   FolderDTO,
   GetNotesQueryParams,
+  LockUpdatedPayload,
   Note,
+  NoteDTO,
   NoteLockInfo,
-  NotePreview,
+  NotePreviewDTO,
+  NoteWriteResult,
   PaginatedResponse,
+  SystemEvent,
   Tag,
   TagWithCount,
-  UpdateNotePayload,
+  UpdateNoteMetaPayload,
+  UserContext,
   UserEntity,
 } from '@synapse-kms/shared';
 
 export interface INoteService {
-  getNoteMeta(
-    id: string
-  ): Promise<{ userId: string; folderId: string | null } | null>;
+  checkNoteAccess(
+    noteId: string,
+    userId: string
+  ): Promise<CheckNoteAccessResult>;
+
   /**
    * Получение пагинированного списка превью заметок (даты: string)
    */
   getNotes(
     query: GetNotesQueryParams,
     userId: string
-  ): Promise<PaginatedResponse<NotePreview>>;
+  ): Promise<PaginatedResponse<NotePreviewDTO>>;
 
   /**
    * Получение полной заметки по ID (даты: string)
    */
-  getNoteById(id: string): Promise<Note | null>;
+  getNoteById(id: string): Promise<NoteDTO | null>;
 
   /**
    * Создание новой заметки (даты: string)
    */
   createNote(payload: CreateNotePayload, userId: string): Promise<Note>;
 
-  /**
-   * Обновление данных заметки с проверкой версии (Optimistic Lock)
-   */
-  updateNote(payload: UpdateNotePayload): Promise<Note | null>;
+  updateMeta(
+    payload: UpdateNoteMetaPayload,
+    actorUserId: string
+  ): Promise<NoteWriteResult>;
+
+  autoSaveContent(
+    payload: AutoSaveNotePayload,
+    actorUserId: string
+  ): Promise<NoteWriteResult>;
 
   /**
    * Архивация заметки
    */
   archiveNote(
-    id: string,
-    userId: string
-  ): Promise<
-    | { error: string; status: number; success?: never }
-    | { error: null; success: true; status?: never }
-  >;
+    id: string
+  ): Promise<{ success: boolean; error?: string; status?: number }>;
 
   /**
    * Массовое перемещение заметок с атомарной защитой Last-Write-Wins (LWW)
@@ -80,7 +90,7 @@ export interface IFolderService {
    * Безопасное удаление папки (Soft delete) с освобождением заметок по LWW
    * Возвращает true, если папка успешно удалена, либо false, если она не найдена/удалена ранее
    */
-  deleteFolder(payload: DeleteFolderPayload, userId: string): Promise<boolean>;
+  deleteFolder(payload: DeleteFolderPayload): Promise<boolean>;
 
   /**
    * Проверка прав доступа пользователя к конкретной папке (Владелец / Шеринг)
@@ -96,7 +106,7 @@ export interface IFolderService {
   shareFolder(payload: {
     folderId: string;
     ownerId: string;
-    targetEmail: string; // Меняем targetUserId на targetEmail для безопасности
+    username: string; // Меняем targetEmail на username для скрытия
     accessLevel: 'read' | 'write';
   }): Promise<{
     success: boolean;
@@ -119,12 +129,18 @@ export interface ITagService {
 
 export interface IUserService {
   findById(id: string): Promise<UserEntity | null>;
-  findByEmail(email: string): Promise<UserEntity | null>;
-  getUserProfile(id: string): Promise<Omit<UserEntity, 'passwordHash'> | null>;
-}
-
-export interface IAdminService {
-  getNotes(query: any, userId: string): Promise<any>;
+  findByUsername(
+    email: string
+  ): Promise<{ id: string; username: string } | null>;
+  getUserProfile(id: string): Promise<{
+    id: string;
+    username: string;
+    displayName: string | null;
+    role: string;
+  } | null>;
+  getShareableUsers(
+    currentUserId: string
+  ): Promise<{ id: string; username: string }[]>;
 }
 
 export interface LockAcquireResult {
@@ -157,6 +173,21 @@ export interface INoteLockService {
   getLocksForNotes(noteIds: string[]): Promise<Record<string, NoteLockInfo>>;
 }
 
+export interface INoteEventPublisher {
+  noteCreated(
+    noteId: string,
+    folderId: string | null,
+    actorUserId: string
+  ): void;
+
+  lockUpdated(payload: LockUpdatedPayload): void;
+}
+
+export interface ISystemEventBus {
+  publish(event: SystemEvent): void;
+  subscribe(): { emitter: EventEmitter; unsubscribe: () => void };
+}
+
 export interface ContextOptions {
   noteService: INoteService;
   folderService: IFolderService;
@@ -165,23 +196,25 @@ export interface ContextOptions {
   userService: IUserService;
   noteLockService: INoteLockService;
   eventEmitter: EventEmitter;
-  userId: string | null;
-  userRole: string | null;
+  noteEventPublisher: INoteEventPublisher;
+  autoSaveContentUseCase: any;
+  user: UserContext | null;
   setAuthCookie?: (token: string) => void;
+  systemEventBus: ISystemEventBus;
 }
 
 export function createContext(opts: ContextOptions) {
   return {
-    noteService: opts.noteService,
-    folderService: opts.folderService,
-    authService: opts.authService,
-    tagService: opts.tagService,
-    userService: opts.userService,
-    noteLockService: opts.noteLockService,
-    eventEmitter: opts.eventEmitter,
-    userId: opts.userId,
-    userRole: opts.userRole,
-    setAuthCookie: opts.setAuthCookie,
+    ...opts,
+    // noteService: opts.noteService,
+    // folderService: opts.folderService,
+    // authService: opts.authService,
+    // tagService: opts.tagService,
+    // userService: opts.userService,
+    // noteLockService: opts.noteLockService,
+    // eventEmitter: opts.eventEmitter,
+    // user: opts.user,
+    // setAuthCookie: opts.setAuthCookie,
   };
 }
 

@@ -1,12 +1,7 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
-import {
-  foldersTable,
-  notesTable,
-  tagsTable,
-  usersTable,
-} from './schema/db-schema.js';
-import { NOTE_LIMITS } from './constants.js';
+import { foldersTable, notesTable, tagsTable } from './schema/db-schema.js';
+import type { usersTable } from './schema/user/user-schema.js';
 
 export type Note = InferSelectModel<typeof notesTable> & {
   preview?: string;
@@ -19,55 +14,11 @@ export type NoteWithTags = Note & {
   tags: string[]; // Переопределяем как обязательное поле
 };
 
-// Превью тоже автоматически использует string для дат
-export type NotePreview = Omit<
-  Note,
-  'content' | 'isDeleted' | 'userId' | 'preview' | 'tags'
-> & {
-  preview: string;
-  tags: string[];
-};
-
-// Стейт блокировки, который рассчитывается на лету (из Redis) при отдаче клиенту
-export type NoteLockInfo = {
-  isLocked: boolean;
-  lockedBy: string | null;
-  lockedByName: string | null; // Потребуется JOIN с usersTable
-  expiresAt: number | null; // Epoch timestamp для фронтенд-таймера
-};
-
-// Точная структура полной заметки (для редактора)
-export type NoteDTO = Note & {
-  preview: string;
-  tags: string[];
-  lock: NoteLockInfo;
-};
-
-// Для списка заметок (превьюшки)
-export type NotePreviewDTO = Omit<Note, 'content' | 'isDeleted'> & {
-  preview: string;
-  tags: string[];
-  lock: NoteLockInfo;
-};
-
-// Универсальные типы системных событий
-export const SYSTEM_EVENTS = {
-  LOCK_UPDATED: 'LOCK_UPDATED', // Вызывается при acquire, renew и release
-  NOTE_MUTATED: 'NOTE_MUTATED', // Создание, удаление, обновление содержимого
-};
-
-export type NoteWithAuthor = Pick<
-  Note,
-  'id' | 'title' | 'created_at' | 'updated_at' | 'preview'
-> & { authorEmail: string };
-
-// export type NotesFilter = 'all' | 'inbox' | 'folder';
-
 // Базовая структура из БД
 export type Folder = InferSelectModel<typeof foldersTable>;
 
 // Полноценный DTO, который реально возвращает репозиторий/сервис чтений
-export type FolderDTO = Folder & {
+export type FolderDTO = Omit<Folder, 'isDeleted'> & {
   notesCount: number;
   isShared: boolean;
 };
@@ -80,7 +31,7 @@ export type FolderWithRole = FolderDTO & {
 export interface FolderAccessResult {
   hasAccess: boolean;
   role: 'owner' | 'guest' | null;
-  accessLevel?: 'read' | 'write';
+  accessLevel?: 'read' | 'write' | 'owner' | null;
 }
 
 // Схема для создания папки
@@ -138,41 +89,6 @@ export interface PaginatedResponse<T> {
   hasMore: boolean;
 }
 
-// СХЕМЫ ВАЛИДАЦИИ ZOD (Enterprise-слой)
-// packages/shared/src/schemas/notes.ts
-// Схема создания заметки
-export const CreateNoteSchema = z.object({
-  title: z
-    .string()
-    .min(NOTE_LIMITS.TITLE_MIN, 'TITLE_EMPTY')
-    .max(NOTE_LIMITS.TITLE_MAX, 'TITLE_TOO_LONG')
-    .transform((val) => val.trim()),
-  content: z
-    .string()
-    .max(NOTE_LIMITS.CONTENT_MAX, 'CONTENT_TOO_LONG')
-    .default(''),
-  folderId: z.string().uuid().nullable(),
-});
-
-// Zod-схемы для апдейта заметки
-export const UpdateNotePayloadSchema = z.object({
-  id: z.string().uuid(),
-  // Заменяем version на обязательную ISO-строку даты изменения
-  clientUpdatedAt: z.string().datetime({ offset: true }),
-  title: z
-    .string()
-    .min(NOTE_LIMITS.TITLE_MIN, 'TITLE_EMPTY')
-    .max(NOTE_LIMITS.TITLE_MAX, 'TITLE_TOO_LONG')
-    .optional(),
-  content: z
-    .string()
-    .max(NOTE_LIMITS.CONTENT_MAX, 'CONTENT_TOO_LONG')
-    .optional(),
-});
-
-// Тип автоматически выведется правильно:
-export type UpdateNotePayload = z.infer<typeof UpdateNotePayloadSchema>;
-
 // Схема пакетного перемещения заметок
 export const BulkMovePayloadSchema = z.object({
   items: z
@@ -187,7 +103,6 @@ export const BulkMovePayloadSchema = z.object({
 });
 
 // TS-типы строятся по схемам валидации!
-export type CreateNotePayload = z.infer<typeof CreateNoteSchema>;
 export type BulkMovePayload = z.infer<typeof BulkMovePayloadSchema>;
 
 // Описываем допустимые значения для фильтра
@@ -225,3 +140,57 @@ export const authCredentialsSchema = z.object({
 export type AuthCredentials = z.infer<typeof authCredentialsSchema>;
 
 export type UserEntity = InferSelectModel<typeof usersTable>;
+
+// 1. БАЗОВАЯ СХЕМА ДЛЯ ВХОДА (Login)
+// Используем её в auth.login роутере
+export const loginSchema = z.object({
+  email: z.string().email('Некорректный формат email'),
+  password: z.string().min(6, 'Пароль должен быть не менее 6 символов'),
+});
+
+// 2. РАСШИРЕННАЯ СХЕМА ДЛЯ РЕГИСТРАЦИИ (Register)
+// Используем метод .extend(), чтобы не копипастить email и password!
+export const registerSchema = loginSchema.extend({
+  username: z
+    .string()
+    .min(3, 'Никнейм должен быть не менее 3 символов')
+    .max(20, 'Никнейм не должен превышать 20 символов')
+    .regex(
+      /^[a-zA-Z0-9_]+$/,
+      'Никнейм может содержать только латинские буквы, цифры и подчеркивание'
+    ),
+  displayName: z.string().optional(),
+});
+
+// Вытаскиваем TypeScript типы напрямую из Zod-схем, чтобы бэкенд и фронтенд их видели
+export type LoginInput = z.infer<typeof loginSchema>;
+export type RegisterInput = z.infer<typeof registerSchema>;
+
+// Safe DTO для фронтенда (Никаких хэшей паролей!)
+export interface UserDTO {
+  id: string;
+  username: string;
+  displayName: string | null;
+  role: string;
+  quota: {
+    tier: 'free' | 'pro';
+    usedNotes: number;
+    maxNotes: number;
+  };
+}
+
+//auth/auth.schema.ts
+export const UserRoleSchema = z.enum(['admin', 'user']);
+export type UserRole = z.infer<typeof UserRoleSchema>;
+
+export const JwtPayloadSchema = z.object({
+  userId: z.string().uuid(),
+  userRole: UserRoleSchema,
+});
+
+export type JwtPayload = z.infer<typeof JwtPayloadSchema>;
+
+export type UserContext = {
+  id: string;
+  role: UserRole;
+};

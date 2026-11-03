@@ -3,3 +3,5 @@ export const NOTE_LIMITS = {
   TITLE_MAX: 150,
   CONTENT_MAX: 5000,
 } as const;
+
+export const NOTES_PAGE_SIZE = '20';

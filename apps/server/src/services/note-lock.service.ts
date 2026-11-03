@@ -1,16 +1,17 @@
 import type { Redis } from 'ioredis';
 import { INoteLockService, LockAcquireResult } from '@synapse-kms/trpc';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { NoteLockInfo, SYSTEM_EVENTS, usersTable } from '@synapse-kms/shared';
+import { NoteLockInfo, userProfilesTable } from '@synapse-kms/shared';
 import { eq } from 'drizzle-orm';
-import { globalEventEmitter } from 'src/infrastructure/events.js';
+import { type NoteEventPublisher } from 'src/infrastructure/NoteEventPublisher.js';
 
 export class NoteLockService implements INoteLockService {
   private readonly LOCK_TTL = 30; // Блокировка выдается на 30 секунд
 
   constructor(
     private readonly redis: Redis,
-    private readonly db: NodePgDatabase<any>
+    private readonly db: NodePgDatabase<any>,
+    private noteEventPublisher: NoteEventPublisher
   ) {}
 
   private getLockKey(noteId: string): string {
@@ -72,7 +73,7 @@ export class NoteLockService implements INoteLockService {
     if (currentLockOwner === userId) {
       await this.redis.expire(key, this.LOCK_TTL);
       // Тоже фоново уведомляем, если нужно обновить TTL у других
-      this.notifyLockStatusChanged(noteId);
+      // this.notifyLockStatusChanged(noteId);
       return true;
     }
 
@@ -108,7 +109,7 @@ export class NoteLockService implements INoteLockService {
    */
   async getLockInfo(noteId: string): Promise<NoteLockInfo> {
     const key = this.getLockKey(noteId);
-    const lockedBy = await this.redis.get(key);
+    const lockedBy = await this.redis.get(key); // Здесь лежит userId того, кто залочил
 
     if (!lockedBy) {
       return {
@@ -120,19 +121,29 @@ export class NoteLockService implements INoteLockService {
     }
 
     const ttl = await this.redis.ttl(key);
-    const expiresAt = Date.now() + ttl * 1000;
+    // Защита: если ключ в Redis вот-вот протухнет, не уходим в отрицательный таймстамп
+    const expiresAt = Date.now() + (ttl > 0 ? ttl * 1000 : 0);
 
-    // Вытягиваем имя/email автора лока для UI-маркера
-    const [user] = await this.db
-      .select({ email: usersTable.email })
-      .from(usersTable)
-      .where(eq(usersTable.id, lockedBy))
+    // ⚡️ Напрямую лезем в таблицу профилей за публичным именем
+    const [profile] = await this.db
+      .select({
+        username: userProfilesTable.username,
+        displayName: userProfilesTable.displayName,
+      })
+      .from(userProfilesTable)
+      .where(eq(userProfilesTable.userId, lockedBy))
       .limit(1);
+
+    // Собираем красивое отображение для UI:
+    // Если есть Display Name — берем его, иначе — @username, иначе — фолбек
+    const lockedByName = profile
+      ? profile.displayName || profile.username
+      : 'Коллега';
 
     return {
       isLocked: true,
       lockedBy,
-      lockedByName: user?.email || 'Коллега',
+      lockedByName,
       expiresAt,
     };
   }
@@ -214,10 +225,11 @@ export class NoteLockService implements INoteLockService {
       // Спокойно в фоне собираем полноценное DTO (включая SELECT из Postgres внутри getLockInfo)
       const lockInfo = await this.getLockInfo(noteId);
 
-      // Генерируем событие для шины
-      globalEventEmitter.emit(SYSTEM_EVENTS.LOCK_UPDATED, {
+      this.noteEventPublisher.lockUpdated({
+        type: 'ACQUIRED',
         noteId,
         lock: lockInfo,
+        actorUserId: lockInfo.lockedBy,
       });
     } catch (error) {
       // Обязательно логируем ошибки фонового процесса, чтобы они не роняли Node.js

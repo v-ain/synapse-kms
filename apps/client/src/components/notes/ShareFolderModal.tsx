@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { trpc } from '../../utils/trpc';
 import { useShareFolder } from '../../hooks';
 import {
@@ -28,9 +28,9 @@ export function ShareFolderModal({ folderId, folderTitle }: ShareFolderProps) {
     }
   );
 
-  const handleShare = (targetEmail: string) => {
+  const handleShare = (targetUserName: string) => {
     shareFolder(
-      { id: folderId, targetEmail, accessLevel },
+      { id: folderId, username: targetUserName, accessLevel },
       { onSuccess: () => setIsOpen(false) }
     );
   };
@@ -110,14 +110,14 @@ export function ShareFolderModal({ folderId, folderTitle }: ShareFolderProps) {
                   <User className="h-3.5 w-3.5" />
                 </div>
                 <span className="font-semibold text-xs leading-none tracking-tight truncate text-slate-900 dark:text-slate-50">
-                  {user.email}
+                  {user.username}
                 </span>
               </div>
 
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => handleShare(user.email)}
+                onClick={() => handleShare(user.username)}
                 disabled={isSharing}
                 className="h-7 text-[11px] font-medium border-slate-200 text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-indigo-950/50 dark:hover:text-indigo-400 dark:hover:border-indigo-900 transition-all duration-150"
               >

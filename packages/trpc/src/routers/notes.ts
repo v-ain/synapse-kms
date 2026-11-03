@@ -3,15 +3,17 @@ import {
   protectedProcedure,
   rootOrFolderProcedure,
   noteAccessProcedure,
+  targetFolderAccessProcedure,
+  cachedNoteAccessProcedure,
 } from '../trpc.js';
-import { z } from 'zod';
 
-// Импортируем Zod-схему, которую вы создали ранее в shared
 import {
+  AutoSaveNoteContentSchema,
   BulkMovePayloadSchema,
   CreateNoteSchema,
   getNotesQueryParamsSchema,
-  UpdateNotePayloadSchema,
+  type NoteWriteResult,
+  UpdateNoteMetaSchema,
 } from '@synapse-kms/shared';
 import { TRPCError } from '@trpc/server';
 
@@ -20,18 +22,20 @@ export const notesRouter = router({
     // Передаем Zod-схему. Она проверит folder_id, limit, cursor и т.д.
     .input(getNotesQueryParamsSchema)
     .query(async ({ input, ctx }) => {
-      // Никаких 'if (!ctx.userId)'! TypeScript знает, что ctx.userId здесь железобетонно string!
-      return await ctx.noteService.getNotes(input, ctx.userId);
+      return await ctx.noteService.getNotes(input, ctx.user.id);
     }),
 
   create: rootOrFolderProcedure
     .input(CreateNoteSchema) // Склеиваем схемы. На входе будет полный контракт заметки
     .mutation(async ({ input, ctx }) => {
-      // 1. Проверяем уровень доступа, который мидлвар УЖЕ посчитал (для папки или для Inbox)
-      if (ctx.folderAccessLevel !== 'write') {
+      // 1. ИСПРАВЛЕНИЕ: Разрешаем запись и редакторам ('write'), и владельцам ('owner')
+      const canWrite =
+        ctx.folderAccessLevel === 'write' || ctx.folderAccessLevel === 'owner';
+
+      if (!canWrite) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'У вас нет прав на создание заметок в этой папке',
+          message: 'У вас нет прав на создание заметок в этой директории',
         });
       }
 
@@ -39,18 +43,17 @@ export const notesRouter = router({
       const newNote = await ctx.noteService.createNote(
         {
           ...input,
-          folderId: ctx.targetFolderId, // 🛡️ Передаем проверенный UUID или null (для Inbox)
+          folderId: ctx.targetFolderId, // Передаем проверенный UUID или null (для Inbox)
         },
-        ctx.userId
+        ctx.user.id
       );
 
       return newNote;
     }),
 
-  // Получение одной заметки по ID
-  getById: noteAccessProcedure // 🚀 Защищаем шлюзом проверки папки/авторства
+  // Роутер получения одной заметки по ID
+  getById: noteAccessProcedure // Охрана на входе отработала за 0.2мс!
     .query(async ({ input, ctx }) => {
-      // Метод просто забирает данные, так как охрана на входе уже всё проверила
       const note = await ctx.noteService.getNoteById(input.id);
 
       if (!note) {
@@ -63,16 +66,18 @@ export const notesRouter = router({
       return note;
     }),
 
-  archive: protectedProcedure
-    .input(
-      z.object({
-        id: z.string().uuid({ message: 'Некорректный формат ID заметки' }),
-      })
-    )
+  archive: noteAccessProcedure // Охрана на входе проверяет доступы за 0.2мс
     .mutation(async ({ input, ctx }) => {
-      const result = await ctx.noteService.archiveNote(input.id, ctx.userId);
+      if (ctx.noteAccessLevel === 'read') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'У вас нет прав на архивацию этой заметки',
+        });
+      }
 
-      // Если в вашей бизнес-логике сервиса произошла ошибка (например, 404)
+      // 2. Вызываем очищенный сервис! Больше никакого ctx.userId внутрь не передаем
+      const result = await ctx.noteService.archiveNote(input.id);
+
       if (result.error) {
         throw new TRPCError({
           code: result.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST',
@@ -84,52 +89,93 @@ export const notesRouter = router({
     }),
 
   // Пакетное перемещение заметок с атомарным разрешением гонок (LWW)
-  bulkMove: protectedProcedure
-    .input(BulkMovePayloadSchema)
+  bulkMove: targetFolderAccessProcedure // Защищаем новым специализированным шлюзом
+    .input(BulkMovePayloadSchema) // Схема содержит targetFolderId, и типы идеально сходятся!
     .mutation(async ({ input, ctx }) => {
-      // Сервис сам обработает сетевые гонки для каждой заметки отдельно
-      const result = await ctx.noteService.bulkMove(input, ctx.userId);
+      const targetAccess = ctx.targetFolderAccessLevel as string;
+      const canWrite = targetAccess === 'write' || targetAccess === 'owner';
 
-      // Возвращаем фронтенду флаг успеха и массив ID перемещенных заметок
-      return {
-        success: result.success,
-        movedIds: result.movedIds,
-      };
+      if (!canWrite) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'Доступ к целевой папке только на чтение',
+        });
+      }
+
+      // Вызываем сервис
+      return await ctx.noteService.bulkMove(input, ctx.user.id);
     }),
 
-  // Атомарное обновление контента с проверкой версии
-  update: noteAccessProcedure // ОХРАНА: Проверяет существование заметки и доступ к папке
-    .input(UpdateNotePayloadSchema)
-    .mutation(async ({ input, ctx }) => {
-      // 1. БЕЗОПАСНОСТЬ СЛОЯ: Гости с уровнем доступа 'read' не могут изменять контент!
-      if (ctx.folderAccessLevel !== 'write') {
+  autoSaveContent: cachedNoteAccessProcedure
+    .input(AutoSaveNoteContentSchema)
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.noteAccessLevel === 'read') {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'У вас есть права только на чтение заметок в этой папке',
         });
       }
 
-      // 2. Передаем инпут в сервис (без userId, доверяя мидлвару)
-      const result = await ctx.noteService.updateNote(input, ctx.userId);
+      const result = await ctx.autoSaveContentUseCase.execute(
+        input,
+        ctx.user.id,
+        ctx.noteAccessLevel
+      );
+      return handleWriteResult(result); // общий хелпер
+    }),
 
-      if (!result.note) {
+  updateMeta: cachedNoteAccessProcedure
+    .input(UpdateNoteMetaSchema)
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.noteAccessLevel === 'read') {
         throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'Заметка не найдена в базе данных',
+          code: 'FORBIDDEN',
+          message: 'У вас есть права только на чтение заметок в этой папке',
         });
       }
 
-      // 3. ⚠️ ОБРАБОТКА КОНФЛИКТА СИНХРОНИЗАЦИИ (Честный LWW)
-      if (result.isRejected) {
+      const isLocked = await ctx.noteLockService.isLockedByOthers(
+        input.noteId,
+        ctx.user.id
+      );
+      if (isLocked) {
         throw new TRPCError({
-          code: 'CONFLICT', // Отдаем статус 409
-          message:
-            'Изменения отклонены. В базе данных уже есть более свежая версия документа.',
-          // Прокидываем актуальную версию заметки, чтобы клиент мог перетереть свой локальный кэш
-          cause: result.note,
+          code: 'CONFLICT',
+          message: 'Заметка заблокирована другим пользователем',
         });
       }
 
-      return result.note;
+      const result = await ctx.noteService.updateMeta(input, ctx.user.id);
+      ctx.noteEventPublisher.noteCreated(input.noteId, null, ctx.user.id);
+      return handleWriteResult(result);
     }),
 });
+
+function handleWriteResult(result: NoteWriteResult): {
+  status: 'applied' | 'stale';
+} {
+  switch (result.status) {
+    case 'applied':
+    case 'stale':
+      // Оба — 200 OK. stale отличается только семантикой для тоста/метрик.
+      return { status: result.status };
+
+    case 'gone':
+      throw new TRPCError({ code: 'NOT_FOUND', message: 'Заметка не найдена' });
+
+    case 'locked':
+      throw new TRPCError({
+        code: 'CONFLICT',
+        message: 'Заметка заблокирована другим пользователем',
+        cause: { lockedBy: result.lockedBy, lockedByName: result.lockedByName },
+      });
+
+    default: {
+      const _exhaustive: never = result;
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'Unknown status',
+      });
+    }
+  }
+}

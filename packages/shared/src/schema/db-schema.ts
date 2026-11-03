@@ -3,7 +3,6 @@ import {
   pgTable,
   uuid,
   text,
-  integer,
   boolean,
   timestamp,
   varchar,
@@ -13,14 +12,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-
-// СХЕМА ТАБЛИЦЫ USERS
-export const usersTable = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom().notNull(),
-  email: text('email').unique().notNull(),
-  passwordHash: text('password_hash').notNull(),
-  role: text('role').default('user').notNull(),
-});
+import { userProfilesTable, usersTable } from './user/user-schema.js';
 
 // СХЕМА ТАБЛИЦЫ FOLDERS
 export const foldersTable = pgTable('folders', {
@@ -111,7 +103,11 @@ export const notesTagsTable = pgTable(
 );
 
 // 1. Создаем перечисление (Enum) для уровней доступа прямо в PostgreSQL
-export const accessLevelEnum = pgEnum('access_level', ['read', 'write']);
+export const accessLevelEnum = pgEnum('access_level', [
+  'read',
+  'write',
+  'owner',
+]);
 
 export const folderSharesTable = pgTable(
   'folder_shares',
@@ -143,12 +139,9 @@ export const folderSharesTable = pgTable(
   }
 );
 
-// 1. СВЯЗИ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ (Users)
-export const usersRelations = relations(usersTable, ({ many }) => ({
-  folders: many(foldersTable), // Папки, которыми владеет пользователь
-  notes: many(notesTable), // Личные заметки пользователя
-  shares: many(folderSharesTable), // Доступы к чужим папкам, которые выданы этому пользователю
-}));
+// ==========================================
+// ДОМЕННЫЕ DRIZZLE RELATIONS (Без таблицы Users)
+// ==========================================
 
 // 2. СВЯЗИ ДЛЯ ПАПОК (Folders)
 export const foldersRelations = relations(foldersTable, ({ one, many }) => ({
@@ -169,9 +162,9 @@ export const notesRelations = relations(notesTable, ({ one, many }) => ({
     references: [foldersTable.id],
   }),
   // Заметка принадлежит конкретному автору
-  author: one(usersTable, {
+  author: one(userProfilesTable, {
     fields: [notesTable.userId],
-    references: [usersTable.id],
+    references: [userProfilesTable.userId],
   }),
   notes_tags: many(notesTagsTable), // Связь M2M с тегами
 }));
