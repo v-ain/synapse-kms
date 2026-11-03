@@ -15,7 +15,7 @@ import { UserRepository } from './domain/user/repository/UserRepository.js';
 import { UserContext } from '@synapse-kms/shared';
 import { AutoSaveContentUseCase } from './application/note/AutoSaveContentUseCase.js';
 import { NoteEventPublisher } from './infrastructure/NoteEventPublisher.js';
-import { globalEventEmitter } from './infrastructure/TypedEventEmitter.js';
+import { systemEventBus } from './infrastructure/SystemEventBus.js';
 
 const fastify = Fastify({ logger: true });
 
@@ -23,7 +23,7 @@ await fastify.register(fastifyCookie, {
   secret: process.env.COOKIE_SECRET || 'my-cookie-secret-key-change-me', // для подписи кук при необходимости
 });
 
-const noteEventPublisher = new NoteEventPublisher(globalEventEmitter, 1000);
+const noteEventPublisher = new NoteEventPublisher(systemEventBus, 1000);
 
 const userService = new UserService(db);
 const authService = new AuthService(db, userService);
@@ -101,7 +101,7 @@ await fastify.register(fastifyTRPCPlugin, {
             res.setCookie('token', newToken, { ...COOKIE_OPTIONS, path: '/' });
           }
         },
-        eventEmitter: globalEventEmitter, // для SSE-подписчиков
+        systemEventBus, // для SSE-подписчиков
         noteEventPublisher, // для use cases / сервисов
         autoSaveContentUseCase,
       });

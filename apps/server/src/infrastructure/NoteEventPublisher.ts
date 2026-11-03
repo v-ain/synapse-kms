@@ -1,20 +1,17 @@
-import {
-  LockUpdatedEvent,
-  NoteMutatedEvent,
-  SYSTEM_EVENTS,
-} from '@synapse-kms/shared';
-import type { EventEmitter } from 'node:events';
+import { LockUpdatedPayload, NoteMutatedPayload } from '@synapse-kms/shared';
+import { type SystemEventBus } from './SystemEventBus.js';
 
 type DebounceEntry = {
   timer: NodeJS.Timeout;
-  payload: NoteMutatedEvent & { type: 'UPDATED' };
+  payload: NoteMutatedPayload;
+  // payload: NoteMutatedEvent & { type: 'UPDATED' };
 };
 
 export class NoteEventPublisher {
   private readonly pending = new Map<string, DebounceEntry>();
 
   constructor(
-    private readonly emitter: EventEmitter,
+    private readonly systemEventBus: SystemEventBus,
     private readonly debounceMs = 1000
   ) {}
 
@@ -36,10 +33,10 @@ export class NoteEventPublisher {
     const existing = this.pending.get(key);
     if (existing) clearTimeout(existing.timer);
 
-    const payload = {
-      type: 'UPDATED' as const,
+    const payload: NoteMutatedPayload = {
+      type: 'UPDATED',
       noteId,
-      origin: 'autoSave' as const,
+      origin: 'autoSave',
       actorUserId,
     };
 
@@ -81,13 +78,13 @@ export class NoteEventPublisher {
 
   // ── LOCK_UPDATED ─────────────────────────────────────────────
 
-  lockUpdated(noteId: string, event: Omit<LockUpdatedEvent, 'noteId'>) {
-    this.emitter.emit(SYSTEM_EVENTS.LOCK_UPDATED, { noteId, ...event });
+  lockUpdated(payload: LockUpdatedPayload) {
+    this.systemEventBus.publish({ type: 'LOCK_UPDATED', payload });
   }
 
   // ── private ──────────────────────────────────────────────────
 
-  private emitNote(payload: NoteMutatedEvent) {
-    this.emitter.emit(SYSTEM_EVENTS.NOTE_MUTATED, payload);
+  private emitNote(payload: NoteMutatedPayload) {
+    this.systemEventBus.publish({ type: 'NOTE_MUTATED', payload });
   }
 }

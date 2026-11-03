@@ -3,6 +3,7 @@ import { INoteLockService, LockAcquireResult } from '@synapse-kms/trpc';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { NoteLockInfo, userProfilesTable } from '@synapse-kms/shared';
 import { eq } from 'drizzle-orm';
+import { type NoteEventPublisher } from 'src/infrastructure/NoteEventPublisher.js';
 
 export class NoteLockService implements INoteLockService {
   private readonly LOCK_TTL = 30; // Блокировка выдается на 30 секунд
@@ -10,7 +11,7 @@ export class NoteLockService implements INoteLockService {
   constructor(
     private readonly redis: Redis,
     private readonly db: NodePgDatabase<any>,
-    private noteEventPublisher: any
+    private noteEventPublisher: NoteEventPublisher
   ) {}
 
   private getLockKey(noteId: string): string {
@@ -224,8 +225,9 @@ export class NoteLockService implements INoteLockService {
       // Спокойно в фоне собираем полноценное DTO (включая SELECT из Postgres внутри getLockInfo)
       const lockInfo = await this.getLockInfo(noteId);
 
-      this.noteEventPublisher.lockUpdated(noteId, {
+      this.noteEventPublisher.lockUpdated({
         type: 'ACQUIRED',
+        noteId,
         lock: lockInfo,
         actorUserId: lockInfo.lockedBy,
       });

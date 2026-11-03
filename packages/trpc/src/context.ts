@@ -10,12 +10,14 @@ import type {
   FolderAccessResult,
   FolderDTO,
   GetNotesQueryParams,
+  LockUpdatedPayload,
   Note,
   NoteDTO,
   NoteLockInfo,
   NotePreviewDTO,
   NoteWriteResult,
   PaginatedResponse,
+  SystemEvent,
   Tag,
   TagWithCount,
   UpdateNoteMetaPayload,
@@ -177,6 +179,13 @@ export interface INoteEventPublisher {
     folderId: string | null,
     actorUserId: string
   ): void;
+
+  lockUpdated(payload: LockUpdatedPayload): void;
+}
+
+export interface ISystemEventBus {
+  publish(event: SystemEvent): void;
+  subscribe(): { emitter: EventEmitter; unsubscribe: () => void };
 }
 
 export interface ContextOptions {
@@ -191,6 +200,7 @@ export interface ContextOptions {
   autoSaveContentUseCase: any;
   user: UserContext | null;
   setAuthCookie?: (token: string) => void;
+  systemEventBus: ISystemEventBus;
 }
 
 export function createContext(opts: ContextOptions) {
