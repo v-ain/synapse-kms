@@ -1,50 +1,65 @@
 import { useState, useEffect, useRef } from 'react';
-import { useUpdateNote } from '@/hooks';
+import { useNoteAutoSave } from '@/hooks';
 import { Textarea } from '@/components/ui/textarea';
-import { CloudCheck, Loader2, AlertCircle, PencilLine } from 'lucide-react';
-import type { Note } from '@synapse-kms/shared';
+import {
+  CloudCheck,
+  Loader2,
+  AlertCircle,
+  PencilLine,
+  Lock,
+} from 'lucide-react';
+import type { NoteDTO } from '@synapse-kms/shared'; // Используем наш обновленный DTO
+import { useNoteLock } from '@/hooks/useNoteLock';
+import { useNoteLockStore } from '@/store/useNoteLockStore';
 
 interface EditorProps {
-  note: Note;
+  note: NoteDTO;
 }
 
-type SyncStatus = 'saved' | 'dirty' | 'saving' | 'error';
+type SyncStatus = 'saved' | 'dirty' | 'saving' | 'error' | 'locked';
 
 export const NoteEditor = ({ note }: EditorProps) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastSentTextRef = useRef(note.content || '');
-
-  // Страховочный реф для хранения актуального текста в памяти (спасает unmount в happy-dom/тестах)
   const currentTextRef = useRef(note.content || '');
 
   const debounceSaveRef = useRef<(text: string) => void>(() => {});
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Храним локальные статусы, которыми управляем вручную
+  // 🔒 Подключаем распределенную систему аренды замка
+  const { isReadOnly, lockedByUserName } = useNoteLock(note.id);
+
   const [localStatus, setLocalStatus] = useState<'saved' | 'dirty' | 'error'>(
     'saved'
   );
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Мгновенный счетчик слов для UI метаданных
   const [wordCount, setWordCount] = useState(
     () => (note.content || '').split(/\s+/).filter(Boolean).length
   );
 
-  const { updateNote, isPending } = useUpdateNote();
+  const { updateNote, isPending } = useNoteAutoSave();
 
-  // Если идет сетевой запрос, принудительно выставляем 'saving', иначе берем локальный стейт
-  const status: SyncStatus = isPending ? 'saving' : localStatus;
+  // Вычисляем статус: если заблокировано кем-то — принудительно 'locked'
+  const status: SyncStatus = isReadOnly
+    ? 'locked'
+    : isPending
+      ? 'saving'
+      : localStatus;
 
   // Сетевая функция отправки
   const executeNetworkSave = (currentText: string) => {
-    if (currentText.length > 5000 || currentText === lastSentTextRef.current) {
+    // 🛡️ Защита: если мы в Read-Only, блокируем любые сетевые мутации
+    if (
+      isReadOnly ||
+      currentText.length > 5000 ||
+      currentText === lastSentTextRef.current
+    ) {
       return;
     }
 
     lastSentTextRef.current = currentText;
 
-    // Отправляем импульс в сеть и передаем колбэки для управления локальным статусом
     updateNote(
       {
         id: note.id,
@@ -65,10 +80,11 @@ export const NoteEditor = ({ note }: EditorProps) => {
     );
   };
 
-  // Инициализируем функцию дебаунса один раз при монтировании (Key гарантирует сброс при смене заметки)
+  // Инициализируем дебаунс
   useEffect(() => {
     debounceSaveRef.current = (text: string) => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      if (isReadOnly) return; // Защита
 
       timerRef.current = setTimeout(() => {
         executeNetworkSave(text);
@@ -78,29 +94,34 @@ export const NoteEditor = ({ note }: EditorProps) => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [note.id]);
+  }, [note.id, isReadOnly]);
 
-  // Гарантия фиксации данных при размонтировании (берет данные строго из стабильной памяти рефа)
+  // Фиксация данных при размонтировании
   useEffect(() => {
     return () => {
+      if (isReadOnly) return; // Защита: не сохраняем чужой прогресс
+
+      const { isReadOnly: latestIsReadOnly } = useNoteLockStore.getState();
       const finalText = currentTextRef.current;
-      if (finalText.length <= 5000 && finalText !== lastSentTextRef.current) {
+
+      if (
+        !latestIsReadOnly &&
+        finalText.length <= 5000 &&
+        finalText !== lastSentTextRef.current
+      ) {
         executeNetworkSave(finalText);
       }
     };
-  }, [note.id]);
+  }, [note.id, isReadOnly]);
 
   // onChange-координатор
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (isReadOnly) return; // Защита на случай обхода disabled в DOM
+
     const val = e.target.value;
-
-    // Синхронизируем строковый реф для unmount-эффекта и blur
     currentTextRef.current = val;
-
-    // Мгновенно пересчитываем слова для интерфейса
     setWordCount(val.split(/\s+/).filter(Boolean).length);
 
-    // Вынесенная валидация лимита (блокирует сеть на лету)
     if (val.length > 5000) {
       setErrorMsg('Превышен лимит в 5000 символов');
       setLocalStatus('error');
@@ -109,14 +130,13 @@ export const NoteEditor = ({ note }: EditorProps) => {
     }
 
     if (errorMsg) setErrorMsg(null);
-
-    // Включаем статус изменения и вызываем дебаунс
     setLocalStatus('dirty');
     debounceSaveRef.current(val);
   };
 
-  // Обработчик потери фокуса (сохраняем немедленно, минуя секундное ожидание)
+  // Обработчик потери фокуса
   const handleBlur = () => {
+    if (isReadOnly) return; // Защита
     const val = currentTextRef.current;
 
     if (val.length <= 5000 && val !== lastSentTextRef.current) {
@@ -125,27 +145,49 @@ export const NoteEditor = ({ note }: EditorProps) => {
     }
   };
 
-  const lastSavedTime = note.clientUpdatedAt
-    ? new Date(note.clientUpdatedAt).toLocaleTimeString()
+  // Используем системный updatedAt вместо удаленного clientUpdatedAt
+  const lastSavedTime = note.updatedAt
+    ? new Date(note.updatedAt).toLocaleTimeString()
     : '--:--:--';
 
   return (
-    <div className="flex flex-col w-full space-y-2">
-      {/* НЕКОНТРОЛИРУЕМЫЙ DOM-ИНПУТ С УЛЬТРА-СКОРОСТЬЮ ВВОДА */}
+    <div className="flex flex-col w-full space-y-2 animate-in fade-in duration-200">
+      {/* 🔒 ИНФОРМАЦИОННЫЙ БАННЕР БЛОКИРОВКИ */}
+      {status === 'locked' && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-amber-200/60 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-900/40 text-amber-800 dark:text-amber-400 text-xs font-medium animate-in slide-in-from-top-2 duration-200">
+          <Lock className="h-3.5 w-3.5 shrink-0 animate-pulse text-amber-500" />
+          <span>
+            Режим чтения. Коллега{' '}
+            <strong className="font-semibold underline">
+              {lockedByUserName}
+            </strong>{' '}
+            прямо сейчас редактирует эту заметку.
+          </span>
+        </div>
+      )}
+
+      {/* ТЕКСТОВОЕ ПОЛЕ */}
       <Textarea
         ref={textareaRef}
         defaultValue={note.content || ''}
         onChange={handleInputChange}
         onBlur={handleBlur}
-        placeholder="Начните писать ваши мысли здесь..."
-        className={`w-full min-h-[300px] p-4 bg-slate-50/30 dark:bg-slate-900/30 border-slate-100 dark:border-slate-900 focus-visible:ring-1 font-mono text-sm leading-relaxed resize-y transition-colors ${
+        disabled={isReadOnly} // 🔒 Замок на уровне браузера
+        placeholder={
+          isReadOnly
+            ? 'Заметка редактируется другим пользователем...'
+            : 'Начните писать ваши мысли здесь...'
+        }
+        className={`w-full min-h-[300px] p-4 bg-slate-50/30 dark:bg-slate-900/30 border-slate-100 dark:border-slate-900 focus-visible:ring-1 font-mono text-sm leading-relaxed resize-y transition-all ${
           status === 'error'
-            ? 'border-destructive focus-visible:ring-destructive dark:border-destructive'
-            : 'focus-visible:ring-slate-300 dark:focus-visible:ring-slate-800'
+            ? 'border-destructive focus-visible:ring-destructive'
+            : status === 'locked'
+              ? 'opacity-60 bg-slate-100/50 dark:bg-slate-900/50 border-dashed select-none cursor-not-allowed focus-visible:ring-transparent'
+              : 'focus-visible:ring-slate-300 dark:focus-visible:ring-slate-800'
         }`}
       />
 
-      {/* СТАТУС-БАР С ЧЕТКОЙ СТЕЙТ-МАШИНОЙ */}
+      {/* СТАТУС-БАР */}
       <div className="flex items-center justify-between px-3 py-1.5 rounded-md bg-slate-50 border border-slate-100 text-[11px] font-medium text-slate-500 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 select-none">
         <div className="flex items-center gap-1.5">
           {status === 'error' && (
@@ -173,6 +215,13 @@ export const NoteEditor = ({ note }: EditorProps) => {
             <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-500 animate-in fade-in duration-150">
               <CloudCheck className="h-3 w-3" />
               <span>Сохранено в KMS</span>
+            </div>
+          )}
+
+          {status === 'locked' && (
+            <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-500 font-semibold">
+              <Lock className="h-3 w-3 text-amber-500" />
+              <span>Заблокировано (Read-Only)</span>
             </div>
           )}
         </div>

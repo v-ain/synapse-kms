@@ -20,12 +20,8 @@ export const trpcClient = trpc.createClient({
       // Настоящий Server-Sent Events (SSE) канал для подписок
       true: httpSubscriptionLink({
         url: '/trpc',
-        // Нативный линк для Server-Sent Events в tRPC v11
-        fetch(url, options) {
-          return fetch(url, {
-            ...options,
-            credentials: 'include',
-          });
+        eventSourceOptions: {
+          withCredentials: true, // Разрешает передачу cross-domain кук для SSE
         },
       }),
 

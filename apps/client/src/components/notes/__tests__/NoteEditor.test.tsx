@@ -1,11 +1,22 @@
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { NoteEditor } from '../NoteEditor';
-import { useUpdateNote } from '@/hooks';
+import { useNoteAutoSave } from '@/hooks';
+// @ts-expect-error оставлено для будущих тестов блокировок
+import { useNoteLock } from '@/hooks/useNoteLock';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // Мокаем LWW-хук мутации
 vi.mock('@/hooks', () => ({
-  useUpdateNote: vi.fn(),
+  useNoteAutoSave: vi.fn(),
+}));
+
+// 2. Мокаем конкретный файл хука блокировки напрямую
+vi.mock('@/hooks/useNoteLock', () => ({
+  // Обратите внимание: экспортируется именно ИМЕНОВАННЫЙ хук
+  useNoteLock: vi.fn(() => ({
+    isReadOnly: false,
+    lockedByUserName: null,
+  })),
 }));
 
 const mockNote = {
@@ -13,12 +24,20 @@ const mockNote = {
   folderId: null,
   title: 'Тестовая заметка',
   content: 'Исходный текст синапса',
+  tags: [],
   isArchived: false,
   isDeleted: false,
   userId: 'user-1',
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
   clientUpdatedAt: new Date().toISOString(),
+  author: null,
+  lock: {
+    isLocked: false,
+    lockedBy: null,
+    lockedByName: null,
+    expiresAt: null,
+  },
 };
 
 describe('NoteEditor — Интеграционное тестирование LWW и неконтролируемого DOM', () => {
@@ -26,13 +45,13 @@ describe('NoteEditor — Интеграционное тестирование L
 
   beforeEach(() => {
     vi.useFakeTimers();
-    mockUpdateNoteFn = vi.fn((payload, options) => {
+    mockUpdateNoteFn = vi.fn((_payload, options) => {
       // Имитируем успешный мгновенный ответ для прохождения UI-тестов,
       // если компонент ожидает вызова onSuccess
       options?.onSuccess?.();
     });
 
-    (useUpdateNote as any).mockReturnValue({
+    (useNoteAutoSave as any).mockReturnValue({
       updateNote: mockUpdateNoteFn,
       isPending: false,
     });

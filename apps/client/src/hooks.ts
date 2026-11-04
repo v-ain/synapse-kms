@@ -175,14 +175,12 @@ export function useAttachTag() {
 
 // 3. ХУК ОБНОВЛЕНИЯ ЗАМЕТКИ (LWW)
 export function useUpdateNoteMeta() {
-  const utils = trpc.useUtils();
-
   const mutation = trpc.notes.updateMeta.useMutation({
     // Включаем безопасные LWW-ретраи для отказоустойчивости при моргании сети
     retry: 3,
     retryDelay: (attempt) => Math.min(attempt * 1000, 5000),
 
-    onSuccess: (updatedNote) => {
+    onSuccess: (_updatedNote) => {
       // Точечно синхронизируем кэш конкретной заметки
       // Мягко уведомляем списки без жесткого рефетча посреди ввода
       // utils.notes.getNotes.invalidate();
@@ -211,10 +209,8 @@ export function useUpdateNoteMeta() {
 
 // 3. ХУК ОБНОВЛЕНИЯ ЗАМЕТКИ (LWW)
 export function useNoteAutoSave() {
-  const utils = trpc.useUtils();
-
   const mutation = trpc.notes.autoSaveContent.useMutation({
-    onSuccess: (updatedNote) => {
+    onSuccess: (_updatedNote) => {
       // Мягко уведомляем списки без жесткого рефетча посреди ввода
       // utils.notes.getNotes.invalidate();
     },
