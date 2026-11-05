@@ -23,7 +23,7 @@ export const foldersRouter = router({
     .mutation(async ({ input, ctx }) => {
       // 1. ИСПОЛЬЗУЕМ ACL: Удалять папку может ТОЛЬКО пользователь с уровнем прав 'owner'
       // Кастим к string для dev-режима
-      if ((ctx.folderAccessLevel as string) !== 'owner') {
+      if (ctx.folderAccessLevel !== 'owner') {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'Только владелец может удалить эту папку',
@@ -56,7 +56,7 @@ export const foldersRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       // 1. ИСПОЛЬЗУЕМ ОДНОРОДНЫЙ ACL: Управлять доступом может ТОЛЬКО пользователь с уровнем 'owner'
-      if ((ctx.folderAccessLevel as string) !== 'owner') {
+      if (ctx.folderAccessLevel !== 'owner') {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'У вас нет прав на управление доступом к этой папке',

@@ -83,13 +83,19 @@ export const folderScopedProcedure = protectedProcedure
     })
   )
   .use(async ({ ctx, next, input }) => {
+    // TODO: переписать схему на иснользование folderId
     const folderId = input.id;
 
     const access = await ctx.folderService.checkFolderAccess(
       folderId,
       ctx.user.id
     );
-
+    if (!access.found) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Папка не существует',
+      });
+    }
     if (!access.hasAccess) {
       throw new TRPCError({
         code: 'FORBIDDEN',
@@ -100,8 +106,8 @@ export const folderScopedProcedure = protectedProcedure
     return next({
       ctx: {
         targetFolderId: folderId,
-        // 🆕 Теперь здесь может прилететь 'read' | 'write' | 'owner'
-        folderAccessLevel: access.accessLevel!,
+        // Здесь может прилететь 'read' | 'write' | 'owner'
+        folderAccessLevel: access.accessLevel,
       },
     });
   });
@@ -124,7 +130,7 @@ export const rootOrFolderProcedure = protectedProcedure
         ctx: {
           targetFolderId: null,
           // 🆕 Для Inbox владелец теперь полноценно имеет уровень 'owner'
-          folderAccessLevel: 'owner' as const,
+          folderAccessLevel: 'owner',
         },
       });
     }
@@ -135,6 +141,12 @@ export const rootOrFolderProcedure = protectedProcedure
       ctx.user.id
     );
 
+    if (!access.found) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Папка не существует',
+      });
+    }
     if (!access.hasAccess) {
       throw new TRPCError({
         code: 'FORBIDDEN',
@@ -146,7 +158,7 @@ export const rootOrFolderProcedure = protectedProcedure
       ctx: {
         targetFolderId: folderId,
         // 🆕 Передаем сквозной уровень доступа из базы
-        folderAccessLevel: access.accessLevel as 'read' | 'write' | 'owner',
+        folderAccessLevel: access.accessLevel,
       },
     });
   });
@@ -167,7 +179,7 @@ export const targetFolderAccessProcedure = protectedProcedure
     if (targetFolderId === null || targetFolderId === undefined) {
       return next({
         ctx: {
-          targetFolderAccessLevel: 'owner' as const,
+          targetFolderAccessLevel: 'owner',
         },
       });
     }
@@ -177,7 +189,12 @@ export const targetFolderAccessProcedure = protectedProcedure
       targetFolderId,
       ctx.user.id
     );
-
+    if (!access.found) {
+      throw new TRPCError({
+        code: 'NOT_FOUND',
+        message: 'Папка не существует',
+      });
+    }
     if (!access.hasAccess) {
       throw new TRPCError({
         code: 'FORBIDDEN',

@@ -3,12 +3,11 @@ import type {
   AttachTagPayload,
   AutoSaveNotePayload,
   BulkMovePayload,
+  CheckFolderAccessResult,
   CheckNoteAccessResult,
   CreateNotePayload,
   DeleteFolderPayload,
-  Folder,
-  FolderAccessResult,
-  FolderDTO,
+  FolderWithAccess,
   GetNotesQueryParams,
   LockUpdatedPayload,
   Note,
@@ -79,12 +78,12 @@ export interface IFolderService {
   /**
    * Получение списка всех активных (не удаленных) папок пользователя
    */
-  getFolders(userId: string): Promise<FolderDTO[]>;
+  getFolders(userId: string): Promise<FolderWithAccess[]>;
 
   /**
    * Создание новой папки
    */
-  createFolder(title: string, userId: string): Promise<Folder>;
+  createFolder(title: string, userId: string): Promise<FolderWithAccess>;
 
   /**
    * Безопасное удаление папки (Soft delete) с освобождением заметок по LWW
@@ -98,7 +97,7 @@ export interface IFolderService {
   checkFolderAccess(
     folderId: string,
     userId: string
-  ): Promise<FolderAccessResult>;
+  ): Promise<CheckFolderAccessResult>;
 
   /**
    * Расшаривание папки другому пользователю по его Email

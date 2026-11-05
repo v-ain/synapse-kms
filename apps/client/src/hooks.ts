@@ -47,9 +47,15 @@ export function useCreateFolder() {
   const utils = trpc.useUtils();
 
   return trpc.folders.create.useMutation({
-    onSuccess: () => {
-      // Мгновенно обновляем список папок в боковом меню
-      utils.folders.getFolders.invalidate();
+    onSuccess: (newFolder) => {
+      // Напрямую обновляем кеш TanStack Query
+      utils.folders.getFolders.setData(undefined, (oldFolders) => {
+        // Если кеша еще нет (например, список не загружался), возвращаем массив с одной папкой
+        if (!oldFolders) return [newFolder];
+
+        // Добавляем новую папку в начало списка (или в конец: [...oldFolders, newFolder])
+        return [newFolder, ...oldFolders];
+      });
     },
   });
 }

@@ -92,7 +92,7 @@ export const notesRouter = router({
   bulkMove: targetFolderAccessProcedure // Защищаем новым специализированным шлюзом
     .input(BulkMovePayloadSchema) // Схема содержит targetFolderId, и типы идеально сходятся!
     .mutation(async ({ input, ctx }) => {
-      const targetAccess = ctx.targetFolderAccessLevel as string;
+      const targetAccess = ctx.targetFolderAccessLevel;
       const canWrite = targetAccess === 'write' || targetAccess === 'owner';
 
       if (!canWrite) {

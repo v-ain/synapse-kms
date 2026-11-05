@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
-import { foldersTable, notesTable, tagsTable } from './schema/db-schema.js';
+import { notesTable, tagsTable } from './schema/db-schema.js';
 import type { usersTable } from './schema/user/user-schema.js';
 
 export type Note = InferSelectModel<typeof notesTable> & {
@@ -13,45 +13,6 @@ export type NoteWithTags = Note & {
   preview: string; // Переопределяем как обязательное поле
   tags: string[]; // Переопределяем как обязательное поле
 };
-
-// Базовая структура из БД
-export type Folder = InferSelectModel<typeof foldersTable>;
-
-// Полноценный DTO, который реально возвращает репозиторий/сервис чтений
-export type FolderDTO = Omit<Folder, 'isDeleted'> & {
-  notesCount: number;
-  isShared: boolean;
-};
-
-// Расширенный вариант, если в будущем для ACL понадобится роль
-export type FolderWithRole = FolderDTO & {
-  role: 'owner' | 'guest' | null;
-};
-
-export interface FolderAccessResult {
-  hasAccess: boolean;
-  role: 'owner' | 'guest' | null;
-  accessLevel?: 'read' | 'write' | 'owner' | null;
-}
-
-// Схема для создания папки
-export const CreateFolderSchema = z.object({
-  title: z
-    .string()
-    .min(1, { message: 'Название папки не может быть пустым' })
-    .max(50, { message: 'Название папки не должно превышать 50 символов' })
-    .transform((val) => val.trim()),
-});
-
-// Схема для удаления папки
-export const DeleteFolderSchema = z.object({
-  id: z.string().uuid({ message: 'Некорректный формат ID папки' }),
-  clientUpdatedAt: z.string().datetime({ offset: true }),
-});
-
-// Экспортируем типы инференса для использования в контрактах сервисов
-export type CreateFolderInput = z.infer<typeof CreateFolderSchema>;
-export type DeleteFolderPayload = z.infer<typeof DeleteFolderSchema>;
 
 // ==========================================
 // ДОМЕННЫЕ ТИПЫ (Авто-вывод из базы данных)
