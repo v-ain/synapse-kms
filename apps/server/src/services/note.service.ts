@@ -9,18 +9,17 @@ import {
 } from '@synapse-kms/shared';
 
 import type {
-  Note,
   CreateNotePayload,
   BulkMovePayload,
   PaginatedResponse,
   GetNotesQueryParams,
-  NoteWithTags,
   NoteDTO,
   NotePreviewDTO,
   AutoSaveNotePayload,
   CheckNoteAccessResult,
   NoteWriteResult,
   UpdateNoteMetaPayload,
+  CreateNoteResult,
 } from '@synapse-kms/shared';
 
 import { INoteLockService, INoteService } from '@synapse-kms/trpc';
@@ -323,7 +322,10 @@ export class NoteService implements INoteService {
   }
 
   // СОЗДАТЬ ЗАМЕТКУ (С КОНТРОЛЕМ DDD ЛИМИТОВ И ЗАЩИТОЙ FOR UPDATE)
-  async createNote(payload: CreateNotePayload, userId: string): Promise<Note> {
+  async createNote(
+    payload: CreateNotePayload,
+    userId: string
+  ): Promise<CreateNoteResult> {
     const { title, content, folderId } = payload;
 
     // 1. Открываем транзакцию, чтобы блокировка FOR UPDATE имела юридическую силу в Postgres
@@ -515,7 +517,7 @@ export class NoteService implements INoteService {
 
     // Схлопываем теги
     const tags = noteData.notes_tags.map((nt) => nt.tag.name);
-    const mappedNote: NoteWithTags = {
+    const mappedNote: any = {
       id: noteData.id,
       folderId: noteData.folderId,
       title: noteData.title,

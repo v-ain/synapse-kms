@@ -1,18 +1,7 @@
 import { z } from 'zod';
 import type { InferSelectModel } from 'drizzle-orm';
-import { notesTable, tagsTable } from './schema/db-schema.js';
+import { tagsTable } from './schema/db-schema.js';
 import type { usersTable } from './schema/user/user-schema.js';
-
-export type Note = InferSelectModel<typeof notesTable> & {
-  preview?: string;
-  tags?: string[];
-};
-
-// Точная и строгая структура заметки, которую возвращает метод getNoteById
-export type NoteWithTags = Note & {
-  preview: string; // Переопределяем как обязательное поле
-  tags: string[]; // Переопределяем как обязательное поле
-};
 
 // ==========================================
 // ДОМЕННЫЕ ТИПЫ (Авто-вывод из базы данных)

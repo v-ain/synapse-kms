@@ -8,7 +8,7 @@ import {
   PencilLine,
   Lock,
 } from 'lucide-react';
-import type { NoteDTO } from '@synapse-kms/shared'; // Используем наш обновленный DTO
+import type { NoteDTO } from '@synapse-kms/shared';
 import { useNoteLock } from '@/hooks/useNoteLock';
 import { useNoteLockStore } from '@/store/useNoteLockStore';
 
@@ -26,7 +26,7 @@ export const NoteEditor = ({ note }: EditorProps) => {
   const debounceSaveRef = useRef<(text: string) => void>(() => {});
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 🔒 Подключаем распределенную систему аренды замка
+  // Подключаем распределенную систему аренды замка
   const { isReadOnly, lockedByUserName } = useNoteLock(note.id);
 
   const [localStatus, setLocalStatus] = useState<'saved' | 'dirty' | 'error'>(
@@ -49,7 +49,7 @@ export const NoteEditor = ({ note }: EditorProps) => {
 
   // Сетевая функция отправки
   const executeNetworkSave = (currentText: string) => {
-    // 🛡️ Защита: если мы в Read-Only, блокируем любые сетевые мутации
+    // Защита: если мы в Read-Only, блокируем любые сетевые мутации
     if (
       isReadOnly ||
       currentText.length > 5000 ||

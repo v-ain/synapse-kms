@@ -6,11 +6,11 @@ import type {
   CheckFolderAccessResult,
   CheckNoteAccessResult,
   CreateNotePayload,
+  CreateNoteResult,
   DeleteFolderPayload,
   FolderWithAccess,
   GetNotesQueryParams,
   LockUpdatedPayload,
-  Note,
   NoteDTO,
   NoteLockInfo,
   NotePreviewDTO,
@@ -46,7 +46,10 @@ export interface INoteService {
   /**
    * Создание новой заметки (даты: string)
    */
-  createNote(payload: CreateNotePayload, userId: string): Promise<Note>;
+  createNote(
+    payload: CreateNotePayload,
+    userId: string
+  ): Promise<CreateNoteResult>;
 
   updateMeta(
     payload: UpdateNoteMetaPayload,

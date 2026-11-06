@@ -228,7 +228,7 @@ export function useNoteAutoSave() {
 
   // Добавляем поддержку стандартных TanStack опций вызова (onSuccess, onError)
   const updateNote = (
-    payload: { id: string; content?: string },
+    payload: { id: string; content: string },
     options?: { onSuccess?: (data: any) => void; onError?: (err: any) => void }
   ) => {
     return mutation.mutate(
