@@ -3,7 +3,6 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: synapse_kms_postgres_prod
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -13,16 +12,54 @@ services:
     volumes:
       - synapse_kms_pgdata_prod:/var/lib/postgresql/data
     restart: unless-stopped
+    networks:
+      - synapse_net
 
   redis:
     image: docker.io/library/redis:7-alpine
-    container_name: synapse_kms_redis_prod
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
     ports:
       - '${REDIS_PORT:-6379}:6379'
     volumes:
       - synapse_kms_redisdata_prod:/data
     restart: unless-stopped
+    networks:
+      - synapse_net
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      DATABASE_URL: ${DATABASE_URL}
+      SERVER_PORT: ${SERVER_PORT}
+      REDIS_URL: ${REDIS_URL}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - synapse_net
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: client
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+    depends_on:
+      - server
+    networks:
+      - synapse_net
+
+networks:
+  synapse_net:
+    driver: bridge
 
 volumes:
   synapse_kms_pgdata_prod:

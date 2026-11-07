@@ -9,8 +9,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "tsx watch --conditions=development --env-file=../../.env src/index.ts",
+    "dev": "tsx watch --conditions=development --env-file=../../.env.local src/index.ts",
     "build": "tsup src/index.ts --format esm --clean",
+    "preview": "node --env-file=../../.env.local dist/index.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

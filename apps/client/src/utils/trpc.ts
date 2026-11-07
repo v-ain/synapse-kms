@@ -7,6 +7,8 @@ import {
 // Импортируем ТИП роутера из нашего пакета trpc
 import type { AppRouter } from '@synapse-kms/trpc';
 
+const apiUrl = '/trpc';
+
 // Создаем типизированные хуки tRPC для React
 export const trpc = createTRPCReact<AppRouter>();
 
@@ -19,7 +21,7 @@ export const trpcClient = trpc.createClient({
 
       // Настоящий Server-Sent Events (SSE) канал для подписок
       true: httpSubscriptionLink({
-        url: '/trpc',
+        url: apiUrl,
         eventSourceOptions: {
           withCredentials: true, // Разрешает передачу cross-domain кук для SSE
         },
@@ -27,7 +29,7 @@ export const trpcClient = trpc.createClient({
 
       // Обычные Queries и Mutations отправляем пачками, как и раньше
       false: httpBatchLink({
-        url: '/trpc',
+        url: apiUrl,
         async headers() {
           return {};
         },

@@ -10,5 +10,6 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL,
   serverPort: Number(process.env.SERVER_PORT) || 3000,
   isProduction: process.env.NODE_ENV === 'production',
+  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
   redisPassword: process.env.REDIS_PASSWORD,
 } as const;

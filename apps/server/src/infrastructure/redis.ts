@@ -1,7 +1,7 @@
 import { Redis } from 'ioredis';
 import { config } from 'src/config.js';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const redisUrl = config.redisUrl;
 const redisPassword = config.redisPassword;
 
 export const redis = new Redis(redisUrl, {
