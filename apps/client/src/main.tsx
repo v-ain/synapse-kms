@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App.tsx';
 import './index.css';
-import { trpc, trpcClient } from './utils/trpc.ts';
+import { trpc, trpcClient } from '@/shared/api/trpc';
 
 // 🎯 Создаем единый экземпляр кэш-движка с промышленными дефолтами
 const queryClient = new QueryClient({

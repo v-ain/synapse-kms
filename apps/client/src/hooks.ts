@@ -1,6 +1,6 @@
 import { NOTES_PAGE_SIZE } from '@synapse-kms/shared';
 import { useUIStore } from './store';
-import { trpc } from './utils/trpc';
+import { trpc } from '@/shared/api/trpc';
 
 // Хук получения всех папок
 export function useFolders() {

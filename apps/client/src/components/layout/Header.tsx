@@ -1,14 +1,14 @@
 import { useUIStore } from '@/store';
 import { Sidebar } from './Sidebar';
 import { useTheme } from './ThemeProvider';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetTrigger } from '@/shared/ui/sheet';
+import { Button } from '@/shared/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@/shared/ui/dropdown-menu';
 import {
   Menu,
   Brain,
@@ -18,9 +18,9 @@ import {
   Moon,
   Monitor,
 } from 'lucide-react';
-import { Separator } from '@/components/ui/separator';
+import { Separator } from '@/shared/ui/separator';
 import { UserAvatar } from '../users/UserAvatar';
-import { trpc } from '@/utils/trpc';
+import { trpc } from '@/shared/api/trpc';
 import { useAuthStore } from '@/store/useAuthStore';
 
 export function Header() {

@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect } from 'react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useSystemSubscription } from '@/hooks/useSystemSubscription';
-import { trpc } from '@/utils/trpc';
+import { trpc } from '@/shared/api/trpc';
 
 interface AuthProviderProps {
   children: ReactNode;

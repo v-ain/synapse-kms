@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useUIStore } from '@/store';
-import { Input } from '@/components/ui/input';
+import { Input } from '@/shared/ui/input';
 import { Search, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 
 export const SearchBar = () => {
   const { setSearchQuery } = useUIStore();

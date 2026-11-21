@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { trpc } from '../utils/trpc'; // Твой клиентский инстанс tRPC
+import { trpc } from '@/shared/api/trpc'; // клиентский инстанс tRPC
 import { useNoteLockStore } from '../store/useNoteLockStore';
 import { useAuthStore } from '../store/useAuthStore';
 

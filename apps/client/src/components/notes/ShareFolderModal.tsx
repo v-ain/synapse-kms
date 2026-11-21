@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { trpc } from '../../utils/trpc';
+import { trpc } from '@/shared/api/trpc';
 import { useShareFolder } from '../../hooks';
 import {
   Dialog,
@@ -7,8 +7,8 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '../ui/dialog';
-import { Button } from '../ui/button';
+} from '@/shared/ui/dialog';
+import { Button } from '@/shared/ui/button';
 import { Share2, User, Shield, ShieldAlert } from 'lucide-react';
 
 interface ShareFolderProps {

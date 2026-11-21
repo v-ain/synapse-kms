@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { trpc } from '@/utils/trpc.js';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { trpc } from '@/shared/api/trpc';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 import {
   Card,
   CardContent,
@@ -9,7 +9,7 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
+} from '@/shared/ui/card';
 import { Loader2, Lock, Mail, AlertCircle, Brain, User } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 

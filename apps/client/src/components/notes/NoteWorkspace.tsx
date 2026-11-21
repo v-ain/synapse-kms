@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNote, useArchiveNote, useAttachTag } from '@/hooks';
 import { InlineTitleEditor } from './InlineTitleEditor';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Separator } from '@/shared/ui/separator';
 import { Archive, Loader2, Plus, Tag as TagIcon } from 'lucide-react';
 import { NoteEditor } from './NoteEditor';
 

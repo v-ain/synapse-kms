@@ -4,8 +4,8 @@ import { SearchBar } from './SearchBar';
 import { NoteCard } from './NoteCard';
 import { CreateNoteForm } from './CreateNoteForm';
 import { BulkActionsPanel } from './BulkActionsPanel';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
+import { Button } from '@/shared/ui/button';
+import { Separator } from '@/shared/ui/separator';
 import {
   FileText,
   FolderOpen,

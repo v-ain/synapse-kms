@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useCreateFolder } from '@/hooks';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 import { FolderPlus } from 'lucide-react';
 
 export function CreateFolderForm() {

@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { cn } from '@/utils/utils';
+import { cn } from '@/shared/lib/cn';
 import { Dialog as SheetPrimitive } from 'radix-ui';
 
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import { XIcon } from 'lucide-react';
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {

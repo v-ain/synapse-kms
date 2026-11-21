@@ -2,7 +2,7 @@ import { useUIStore } from '@/store'; // Вытаскиваем стор авт�
 import { useDeleteFolder, useFolders } from '@/hooks';
 import { Folder, FolderUsers, Trash2 } from 'lucide-react';
 import { ShareFolderModal } from '../notes/ShareFolderModal';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 
 export function FolderList() {
   const { activeFilter, activeFolderId, setActiveFolder } = useUIStore();

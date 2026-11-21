@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useUpdateNoteMeta } from '@/hooks';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Button } from '@/shared/ui/button';
 import { Pencil, Check, Loader2 } from 'lucide-react';
 
 interface InlineTitleEditorProps {

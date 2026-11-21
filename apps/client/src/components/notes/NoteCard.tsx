@@ -1,4 +1,4 @@
-import { Checkbox } from '@/components/ui/checkbox';
+import { Checkbox } from '@/shared/ui/checkbox';
 import type { NotePreviewDTO } from '@synapse-kms/shared';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Lock, User2, PenTool } from 'lucide-react';

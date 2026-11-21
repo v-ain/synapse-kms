@@ -1,7 +1,7 @@
 import { useUIStore } from '@/store';
 import { CreateFolderForm } from '@/components/notes/CreateFolderForm';
 import { TagCloud } from '@/components/tags/TagCloud';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import { Inbox, Layers } from 'lucide-react';
 import { FolderList } from '../folders/FolderList';
 

@@ -1,4 +1,4 @@
-import { trpc } from '@/utils/trpc';
+import { trpc } from '@/shared/api/trpc';
 import { useUIStore } from '@/store';
 import { useAuthStore } from '@/store/useAuthStore';
 import { NOTES_PAGE_SIZE, type SystemEvent } from '@synapse-kms/shared';

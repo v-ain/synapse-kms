@@ -1,14 +1,14 @@
 import { useUIStore } from '@/store';
 import { useFolders, useBulkMoveNotes } from '@/hooks';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Card, CardContent } from '@/components/ui/card';
+} from '@/shared/ui/select';
+import { Card, CardContent } from '@/shared/ui/card';
 import {
   CheckSquare,
   Folder,

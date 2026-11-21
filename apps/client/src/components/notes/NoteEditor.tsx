@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNoteAutoSave } from '@/hooks';
-import { Textarea } from '@/components/ui/textarea';
+import { Textarea } from '@/shared/ui/textarea';
 import {
   CloudCheck,
   Loader2,
