@@ -1,72 +1,28 @@
-import type { NotesFilter } from '@synapse-kms/shared';
-import { create } from 'zustand';
+import { useActiveNoteStore } from '@/entities/note';
+import { useNoteFiltersStore } from '@/features/note/filter';
+import { useNoteSelectionStore } from '@/features/note/bulk-actions';
 
-interface UIState {
-  activeFilter: NotesFilter;
-  activeFolderId: string | null;
-  activeTagName: string | null;
-  activeNoteId: string | null;
-  selectedNoteIds: string[];
-  targetFolderId: string;
-  searchQuery: string;
+// Синхронизация: при смене фильтра/папки/тега сбрасываем массовое выделение
+// (Потом перенесешь эту подписку в widgets/notes-sidebar или app/providers)
+useNoteFiltersStore.subscribe((state, prevState) => {
+  if (
+    state.activeFilter !== prevState.activeFilter ||
+    state.activeFolderId !== prevState.activeFolderId ||
+    state.activeTagName !== prevState.activeTagName
+  ) {
+    useNoteSelectionStore.getState().clearSelection();
+  }
+});
 
-  setFilter: (filter: NotesFilter) => void;
-  setActiveFolder: (folderId: string | null) => void;
-  setActiveTag: (tagName: string | null) => void;
-  setActiveNote: (noteId: string | null) => void;
-  toggleSelectNote: (noteId: string) => void;
-  clearSelection: () => void;
-  setTargetFolder: (folderId: string) => void;
-  setSearchQuery: (inputText: string) => void;
+// Временный фасад для обратной совместимости со старыми компонентами и тестами
+export function useUIStore() {
+  const activeNote = useActiveNoteStore();
+  const filters = useNoteFiltersStore();
+  const selection = useNoteSelectionStore();
+
+  return {
+    ...activeNote,
+    ...filters,
+    ...selection,
+  };
 }
-
-export const useUIStore = create<UIState>((set) => ({
-  activeFilter: 'all',
-  activeFolderId: null,
-  activeTagName: null,
-  activeNoteId: null,
-  selectedNoteIds: [],
-  targetFolderId: 'inbox',
-  searchQuery: '',
-
-  // Системные фильтры ('all', 'inbox') сбрасывают и папки, и теги
-  setFilter: (filter) =>
-    set({
-      activeFilter: filter,
-      activeFolderId: null,
-      activeTagName: null,
-      activeNoteId: null,
-      selectedNoteIds: [],
-    }),
-
-  // Выбор папки принудительно сбрасывает активный тег
-  setActiveFolder: (folderId) =>
-    set({
-      activeFilter: 'folder',
-      activeFolderId: folderId,
-      activeTagName: null,
-      activeNoteId: null,
-      selectedNoteIds: [],
-    }),
-
-  // Выбор тега принудительно сбрасывает активную папку
-  setActiveTag: (tagName) =>
-    set({
-      activeFilter: 'tag',
-      activeFolderId: null,
-      activeTagName: tagName,
-      activeNoteId: null,
-      selectedNoteIds: [],
-    }),
-
-  setActiveNote: (noteId) => set({ activeNoteId: noteId }),
-  toggleSelectNote: (noteId) =>
-    set((state) => ({
-      selectedNoteIds: state.selectedNoteIds.includes(noteId)
-        ? state.selectedNoteIds.filter((id) => id !== noteId)
-        : [...state.selectedNoteIds, noteId],
-    })),
-  clearSelection: () => set({ selectedNoteIds: [] }),
-  setTargetFolder: (folderId) => set({ targetFolderId: folderId }),
-  setSearchQuery: (inputSearchText) => set({ searchQuery: inputSearchText }),
-}));
