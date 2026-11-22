@@ -1,9 +1,9 @@
 import { useUIStore } from '@/store';
 import { useNotes, useFolders } from '@/hooks';
-import { SearchBar } from './SearchBar';
-import { NoteCard } from './NoteCard';
-import { CreateNoteForm } from './CreateNoteForm';
-import { BulkActionsPanel } from './BulkActionsPanel';
+import { SearchBar } from '@/features/note/filter';
+import { NoteCard } from '@/entities/note';
+import { CreateNoteForm } from '@/features/note/create';
+import { BulkActionsPanel } from '@/features/note/bulk-actions';
 import { Button } from '@/shared/ui/button';
 import { Separator } from '@/shared/ui/separator';
 import {
@@ -14,6 +14,7 @@ import {
   Loader2,
   TagIcon,
 } from 'lucide-react';
+import { useAuthStore } from '@/entities/user';
 
 export function NotesList() {
   const {
@@ -34,6 +35,8 @@ export function NotesList() {
     isFetchingNextPage,
   } = useNotes();
 
+  const currentUserId = useAuthStore((s) => s.userId);
+  const currentUsername = useAuthStore((s) => s.username);
   const notes = data?.pages.flatMap((page) => page.items) || [];
   const { data: folders } = useFolders();
 
@@ -117,6 +120,8 @@ export function NotesList() {
                 note={note}
                 isActive={activeNoteId === note.id}
                 isSelected={selectedNoteIds.includes(note.id)}
+                currentUserId={currentUserId}
+                currentUsername={currentUsername}
                 onSelectClick={() => toggleSelectNote(note.id)}
                 onCardClick={() => setActiveNote(note.id)}
               />
@@ -146,7 +151,10 @@ export function NotesList() {
       <Separator className="my-2 shrink-0" />
 
       {/* Форма создания заметки */}
-      <CreateNoteForm />
+      <CreateNoteForm
+        activeFilter={activeFilter}
+        activeFolderId={activeFolderId}
+      />
     </div>
   );
 }

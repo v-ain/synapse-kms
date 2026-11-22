@@ -1,6 +1,6 @@
 import { trpc } from '@/shared/api/trpc';
 import { useUIStore } from '@/store';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useAuthStore } from '@/entities/user';
 import { NOTES_PAGE_SIZE, type SystemEvent } from '@synapse-kms/shared';
 
 export function useSystemSubscription() {

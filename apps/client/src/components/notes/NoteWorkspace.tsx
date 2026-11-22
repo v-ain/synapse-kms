@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useNote, useArchiveNote, useAttachTag } from '@/hooks';
-import { InlineTitleEditor } from './InlineTitleEditor';
+import { InlineTitleEditor } from '@/features/note/edit';
 import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
 import { Separator } from '@/shared/ui/separator';
 import { Archive, Loader2, Plus, Tag as TagIcon } from 'lucide-react';
-import { NoteEditor } from './NoteEditor';
+import { NoteEditor } from '@/features/note/edit';
 
 interface NoteWorkspaceProps {
   noteId: string;

@@ -1,8 +1,8 @@
 import { render, screen, act, fireEvent } from '@testing-library/react';
-import { NoteEditor } from '../NoteEditor';
+import { NoteEditor } from '@/features/note/edit';
 import { useNoteAutoSave } from '@/hooks';
 // @ts-expect-error оставлено для будущих тестов блокировок
-import { useNoteLock } from '@/hooks/useNoteLock';
+import { useNoteLock } from '@/features/note/edit';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // Мокаем LWW-хук мутации

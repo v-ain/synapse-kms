@@ -1,12 +1,12 @@
 import { useUIStore } from '@/store';
-import { CreateFolderForm } from '@/components/notes/CreateFolderForm';
-import { TagCloud } from '@/components/tags/TagCloud';
+import { CreateFolderForm } from '@/features/folder/create';
+import { TagCloud } from '@/entities/tag';
 import { Button } from '@/shared/ui/button';
 import { Inbox, Layers } from 'lucide-react';
 import { FolderList } from '../folders/FolderList';
 
 export function Sidebar() {
-  const { activeFilter, setFilter } = useUIStore();
+  const { activeFilter, setFilter, activeTagName, setActiveTag } = useUIStore();
 
   return (
     <div className="flex flex-col h-full bg-slate-50/50 border-r border-slate-200 p-4 dark:bg-slate-900/50 dark:border-slate-800 transition-colors">
@@ -35,7 +35,10 @@ export function Sidebar() {
         {/* РАЗДЕЛ ПАПОК */}
         <FolderList />
         {/* РАЗДЕЛ ТЕГОВ */}
-        <TagCloud />
+        <TagCloud
+          selectedTagName={activeFilter === 'tag' ? activeTagName : null}
+          onSelectTag={setActiveTag}
+        />
       </div>
       {/* ИЗОЛИРОВАННАЯ ФОРМА СОЗДАНИЯ ПАПОК (Надежно прижата к самому низу) */}
       <CreateFolderForm />

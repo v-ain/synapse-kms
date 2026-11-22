@@ -6,7 +6,7 @@ import { Header } from './components/layout/Header';
 import { ThemeProvider } from './components/layout/ThemeProvider';
 import { useUIStore } from './store';
 import { AuthProvider } from './components/auth/AuthProvider';
-import { useAuthStore } from './store/useAuthStore';
+import { useAuthStore } from '@/entities/user';
 
 export default function App() {
   const isAuthed = useAuthStore((state) => state.isAuthed);

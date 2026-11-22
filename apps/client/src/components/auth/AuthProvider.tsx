@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect } from 'react';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useAuthStore } from '@/entities/user';
 import { useSystemSubscription } from '@/hooks/useSystemSubscription';
 import { trpc } from '@/shared/api/trpc';
 

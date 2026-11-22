@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from '@/shared/ui/card';
 import { Loader2, Lock, Mail, AlertCircle, Brain, User } from 'lucide-react';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useAuthStore } from '@/entities/user';
 
 export const AuthForm = () => {
   const [email, setEmail] = useState('');

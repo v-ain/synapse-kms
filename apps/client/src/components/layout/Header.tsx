@@ -19,9 +19,9 @@ import {
   Monitor,
 } from 'lucide-react';
 import { Separator } from '@/shared/ui/separator';
-import { UserAvatar } from '../users/UserAvatar';
+import { UserAvatar } from '@/entities/user';
 import { trpc } from '@/shared/api/trpc';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useAuthStore } from '@/entities/user';
 
 export function Header() {
   const { activeNoteId, setActiveNote } = useUIStore();

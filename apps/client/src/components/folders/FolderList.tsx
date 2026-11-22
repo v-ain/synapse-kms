@@ -1,7 +1,7 @@
-import { useUIStore } from '@/store'; // Вытаскиваем стор авторизации, чтобы проверять владельца
+import { useUIStore } from '@/store';
 import { useDeleteFolder, useFolders } from '@/hooks';
 import { Folder, FolderUsers, Trash2 } from 'lucide-react';
-import { ShareFolderModal } from '../notes/ShareFolderModal';
+import { ShareFolderModal } from '@/features/folder/share';
 import { Button } from '@/shared/ui/button';
 
 export function FolderList() {
