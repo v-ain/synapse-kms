@@ -1,9 +1,8 @@
-import { Archive, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useNote } from '@/entities/note';
 import { InlineTitleEditor, NoteEditor } from '@/features/note/edit';
-import { useArchiveNote } from '@/features/note/archive';
+import { ArchiveNoteButton } from '@/features/note/archive';
 import { AttachTagForm } from '@/features/note/attach-tag';
-import { Button } from '@/shared/ui/button';
 import { Separator } from '@/shared/ui/separator';
 
 interface NoteWorkspaceProps {
@@ -12,7 +11,6 @@ interface NoteWorkspaceProps {
 
 export function NoteWorkspace({ noteId }: NoteWorkspaceProps) {
   const { data: fullNote, isLoading: contentLoading } = useNote(noteId);
-  const archiveNoteMutation = useArchiveNote();
 
   if (contentLoading) {
     return (
@@ -46,18 +44,7 @@ export function NoteWorkspace({ noteId }: NoteWorkspaceProps) {
             key={fullNote.id}
           />
 
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-8 gap-1.5 shrink-0"
-            onClick={() => {
-              if (confirm('Удалить заметку в архив?')) {
-                archiveNoteMutation.mutate({ id: fullNote.id });
-              }
-            }}
-          >
-            <Archive className="h-3.5 w-3.5" /> В архив
-          </Button>
+          <ArchiveNoteButton noteId={fullNote.id} noteTitle={fullNote.title} />
         </div>
 
         <p className="text-xs font-medium text-slate-400 dark:text-slate-500">

@@ -1,4 +1,5 @@
 import { trpc } from '@/shared/api/trpc';
+import { toast } from 'sonner';
 
 interface UseDeleteFolderOptions {
   onDeleted?: () => void;
@@ -9,22 +10,23 @@ export function useDeleteFolder(options?: UseDeleteFolderOptions) {
 
   const mutation = trpc.folders.delete.useMutation({
     onSuccess: () => {
-      // Коллбэк снаружи (из виджета), чтобы не тащить сюда стор из features/note/filter
       options?.onDeleted?.();
       utils.folders.getFolders.invalidate();
       utils.notes.getNotes.invalidate();
-    },
-    onError: (error) => {
-      alert(error.message || 'Не удалось удалить папку.');
+      toast.success('Папка удалена');
     },
   });
 
   const deleteFolder = (id: string) => {
-    return mutation.mutate({
+    mutation.mutate({
       id,
       clientUpdatedAt: new Date().toISOString(),
     });
   };
-
   return { ...mutation, deleteFolder };
+
+  // return {
+  //   deleteFolder,
+  //   isPending: mutation.isPending,
+  // };
 }

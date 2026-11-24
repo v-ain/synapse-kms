@@ -1,10 +1,10 @@
-import { Inbox, Layers, Trash2 } from 'lucide-react';
+import { Inbox, Layers } from 'lucide-react';
 import { FolderList } from '@/entities/folder';
 import { TagCloud } from '@/entities/tag';
 import { useNoteFiltersStore } from '@/features/note/filter';
 import { CreateFolderForm } from '@/features/folder/create';
 import { ShareFolderModal } from '@/features/folder/share';
-import { useDeleteFolder } from '@/features/folder/delete';
+import { DeleteFolderButton } from '@/features/folder/delete';
 import { Button } from '@/shared/ui/button';
 
 export function Sidebar() {
@@ -16,10 +16,6 @@ export function Sidebar() {
     setActiveFolder,
     setActiveTag,
   } = useNoteFiltersStore();
-
-  const { deleteFolder } = useDeleteFolder({
-    onDeleted: () => setFilter('all'),
-  });
 
   return (
     <div className="flex flex-col h-full bg-slate-50/50 border-r border-slate-200 p-4 dark:bg-slate-900/50 dark:border-slate-800 transition-colors">
@@ -54,19 +50,11 @@ export function Sidebar() {
                 folderId={folder.id}
                 folderTitle={folder.title}
               />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-slate-400 hover:text-destructive transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (confirm(`Удалить личную папку "${folder.title}"?`)) {
-                    deleteFolder(folder.id);
-                  }
-                }}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
+              <DeleteFolderButton
+                folderId={folder.id}
+                folderTitle={folder.title}
+                onDeleted={() => setFilter('all')}
+              />
             </>
           )}
         />

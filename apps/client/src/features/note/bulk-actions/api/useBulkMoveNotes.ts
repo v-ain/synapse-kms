@@ -1,4 +1,11 @@
+import type { MutateOptions } from '@tanstack/react-query';
 import { trpc } from '@/shared/api/trpc';
+import { toast } from 'sonner';
+
+interface BulkMovePayload {
+  targetFolderId: string | null;
+  ids: string[];
+}
 
 export function useBulkMoveNotes() {
   const utils = trpc.useUtils();
@@ -9,33 +16,32 @@ export function useBulkMoveNotes() {
       utils.notes.getNotes.invalidate();
 
       if (result.movedIds.length === 0) {
-        console.warn(
-          'Ни одна из заметок не была перемещена, так как данные в базе новее.'
+        toast.warning(
+          'Заметки не перемещены: в базе сохранена более свежая версия'
         );
+      } else {
+        toast.success(`Перемещено заметок: ${result.movedIds.length}`);
       }
-    },
-    onError: (error) => {
-      alert(error.message || 'Что-то пошло не так при перемещении...');
     },
   });
 
   const bulkMove = (
-    payload: { targetFolderId: string | null; ids: string[] },
-    options?: any
+    payload: BulkMovePayload,
+    options?: MutateOptions<any, any, any>
   ) => {
     const clientUpdatedAt = new Date().toISOString();
 
-    return mutation.mutate(
+    mutation.mutate(
       {
         targetFolderId: payload.targetFolderId,
-        items: payload.ids.map((id) => ({
-          id,
-          clientUpdatedAt,
-        })),
+        items: payload.ids.map((id) => ({ id, clientUpdatedAt })),
       },
       options
     );
   };
 
-  return { ...mutation, bulkMove };
+  return {
+    bulkMove,
+    isPending: mutation.isPending,
+  };
 }
