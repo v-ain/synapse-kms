@@ -1,5 +1,12 @@
 // server/src/infrastructure/events/system-events.types.ts
 
+// 3. СТЕЙТ БЛОКИРОВКИ (Из Redis)
+export type NoteLockInfo = {
+  isLocked: boolean;
+  lockedBy: string | null;
+  lockedByName: string | null;
+  expiresAt: number | null;
+};
 // ── Доменные пейлоады ────────────────────────────────────────
 
 export type NoteMutatedPayload =
@@ -25,7 +32,7 @@ export type LockUpdatedPayload = {
     lockedBy: string | null;
     lockedByName: string | null;
     expiresAt: number | null;
-  } | null;
+  };
   actorUserId: string;
 };
 

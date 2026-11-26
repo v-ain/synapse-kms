@@ -5,9 +5,9 @@ import {
   notesTable,
 } from '@synapse-kms/shared';
 import type {
+  CheckFolderAccessResult,
   DeleteFolderPayload,
-  Folder,
-  FolderAccessResult,
+  FolderWithAccess,
 } from '@synapse-kms/shared';
 import { DrizzleDB } from 'src/db.js';
 import { IFolderService } from '@synapse-kms/trpc';
@@ -22,39 +22,44 @@ export class FolderService implements IFolderService {
   async checkFolderAccess(
     folderId: string,
     userId: string
-  ): Promise<FolderAccessResult> {
-    // Прямой точечный удар по таблице доступов через B-Tree индекс
-    const [shareRecord] = await this.db
+  ): Promise<CheckFolderAccessResult> {
+    // Делаем выборку из таблицы папок и левым джоином подтягиваем права для конкретного юзера
+    const [row] = await this.db
       .select({
+        folderExists: sql<boolean>`true`, // Маркер: если строка вернулась, папка физически существует
         accessLevel: folderSharesTable.accessLevel,
       })
-      .from(folderSharesTable)
+      .from(foldersTable)
+      .leftJoin(
+        folderSharesTable,
+        and(
+          eq(folderSharesTable.folderId, foldersTable.id),
+          eq(folderSharesTable.userId, userId)
+        )
+      )
       .where(
         and(
-          eq(folderSharesTable.folderId, folderId),
-          eq(folderSharesTable.userId, userId)
+          eq(foldersTable.id, folderId),
+          eq(foldersTable.isDeleted, false) // Проверяем только "живые" папки
         )
       )
       .limit(1);
 
-    // 1. Если записи нет — пользователь не имеет отношения к папке
-    // (Либо папки вообще не существует в природе)
-    if (!shareRecord) {
-      return {
-        hasAccess: false,
-        role: null,
-        accessLevel: null,
-      };
+    // Кейс 1: Папка не найдена в базе (или удалена)
+    if (!row) {
+      return { found: false };
     }
 
-    const level = shareRecord.accessLevel as 'read' | 'write' | 'owner';
-    const isOwner = level === 'owner';
+    // Кейс 2: Папка есть, но записи в ACL для этого пользователя нет
+    if (!row.accessLevel) {
+      return { found: true, hasAccess: false };
+    }
 
-    // 2. Отдаем однородный, чистый и предсказуемый результат
+    // Кейс 3: Пользователь найден в таблице доступов
     return {
+      found: true,
       hasAccess: true,
-      role: isOwner ? 'owner' : 'guest',
-      accessLevel: level, // 'read' | 'write' | 'owner'
+      accessLevel: row.accessLevel,
     };
   }
 
@@ -101,12 +106,8 @@ export class FolderService implements IFolderService {
       createdAt: row.createdAt,
       notesCount: row.notesCount,
 
-      // фолбэк для обратной совместимости
-      userId: row.ownerId,
-      // Больше никаких ручных вычислений флага!
-      // Если уровень доступа не owner — значит папка расшарена нам извне. Чисто и понятно.
-      isShared: row.accessLevel !== 'owner',
-      accessLevel: row.accessLevel as 'read' | 'write' | 'owner',
+      ownerId: row.ownerId,
+      accessLevel: row.accessLevel,
     }));
   }
 
@@ -163,9 +164,9 @@ export class FolderService implements IFolderService {
   /**
    * Создать новую папку с автоматической регистрацией владельца в ACL
    */
-  async createFolder(title: string, userId: string): Promise<Folder> {
+  async createFolder(title: string, userId: string): Promise<FolderWithAccess> {
     // Открываем транзакцию, чтобы обе записи создались одновременно
-    return await this.db.transaction(async (tx) => {
+    const newFolder = await this.db.transaction(async (tx) => {
       // 1. Создаем саму папку в folders
       const [folder] = await tx
         .insert(foldersTable)
@@ -185,6 +186,15 @@ export class FolderService implements IFolderService {
       // Возвращаем созданную папку наружу
       return folder;
     });
+
+    return {
+      id: newFolder.id,
+      title: newFolder.title,
+      ownerId: newFolder.userId,
+      createdAt: newFolder.createdAt,
+      notesCount: 0, // В новой папке всегда 0 заметок
+      accessLevel: 'owner', // Для создателя это всегда 'owner'
+    };
   }
 
   async deleteFolder(payload: DeleteFolderPayload): Promise<boolean> {

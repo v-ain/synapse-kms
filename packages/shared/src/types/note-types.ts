@@ -2,22 +2,29 @@ import type { InferSelectModel } from 'drizzle-orm';
 import type { notesTable } from '../schema/db-schema.js';
 import z from 'zod';
 import { NOTE_LIMITS } from '../constants.js';
+import type { NoteLockInfo } from './system-events.types.js';
 
 // 1. ВНУТРЕННИЙ ТИП БАЗЫ ДАННЫХ (Остается на бэкенде)
 export type NoteRawDB = InferSelectModel<typeof notesTable>;
+
+export type NoteCoreDTO = {
+  id: string;
+  // TODO: заменить null на строкоый тип 'inbox'
+  folderId: string | null;
+  title: string;
+  preview: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+  clientUpdatedAt: string;
+};
+
+export type CreateNoteResult = NoteCoreDTO;
 
 // 2. ПОДПИСЬ АВТОРА (Используется везде на фронте)
 export type NoteAuthorInfo = {
   username: string; // Всегда есть (@cyber_architect)
   displayName: string | null; // Томас Андерсон (может быть пустым)
-};
-
-// 3. СТЕЙТ БЛОКИРОВКИ (Из Redis)
-export type NoteLockInfo = {
-  isLocked: boolean;
-  lockedBy: string | null;
-  lockedByName: string | null;
-  expiresAt: number | null;
 };
 
 // ==========================================

@@ -18,6 +18,7 @@ import {
 import { TRPCError } from '@trpc/server';
 
 export const notesRouter = router({
+  // TODO: rename to getNotesList
   getNotes: protectedProcedure
     // Передаем Zod-схему. Она проверит folder_id, limit, cursor и т.д.
     .input(getNotesQueryParamsSchema)
@@ -92,7 +93,7 @@ export const notesRouter = router({
   bulkMove: targetFolderAccessProcedure // Защищаем новым специализированным шлюзом
     .input(BulkMovePayloadSchema) // Схема содержит targetFolderId, и типы идеально сходятся!
     .mutation(async ({ input, ctx }) => {
-      const targetAccess = ctx.targetFolderAccessLevel as string;
+      const targetAccess = ctx.targetFolderAccessLevel;
       const canWrite = targetAccess === 'write' || targetAccess === 'owner';
 
       if (!canWrite) {
@@ -174,7 +175,7 @@ function handleWriteResult(result: NoteWriteResult): {
       const _exhaustive: never = result;
       throw new TRPCError({
         code: 'INTERNAL_SERVER_ERROR',
-        message: 'Unknown status',
+        message: `Unknown status: ${_exhaustive}`,
       });
     }
   }
